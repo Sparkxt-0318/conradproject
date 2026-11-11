@@ -36,6 +36,21 @@ def layer_png(a: np.ndarray, min_side: int = 240) -> bytes:
     return buf.getvalue()
 
 
+def orthophoto_png(orthophoto, grid, min_side: int = 480) -> bytes:
+    """The orthophoto over the field grid as a small picture, grey where it has no data."""
+    import rasterio
+    from soilsight.layers.grid import read_on_grid
+
+    factor = max(1, min(8, int(np.ceil(min_side / min(grid.shape)))))
+    with rasterio.open(orthophoto) as src:
+        alpha = 4 if src.count >= 4 else None
+    rgb = read_on_grid(orthophoto, grid, (1, 2, 3), factor, alpha_band=alpha)
+    out = np.where(np.isfinite(rgb), rgb, 200).clip(0, 255).astype("uint8").transpose(1, 2, 0)
+    buf = io.BytesIO()
+    Image.fromarray(out).save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
 def _img(png: bytes, alt: str) -> str:
     return f'<img alt="{html.escape(alt)}" src="data:image/png;base64,{base64.b64encode(png).decode()}">'
 
@@ -69,6 +84,9 @@ def write_quality(fd: FieldDir, checks, stack=None, stopped: str = "") -> dict:
         parts.append("</tbody></table>")
     if stack is not None:
         from soilsight.layers.build import DESCRIPTIONS
+        if fd.orthophoto.exists():
+            parts.append(f'<h2>Orthophoto</h2><figure class="photo">{_img(orthophoto_png(fd.orthophoto, stack.grid), "orthophoto")}'
+                         "<figcaption>The stitched photo over the field grid. North is up.</figcaption></figure>")
         parts.append("<h2>Layer previews</h2><p>Dark purple is low, yellow is high, grey has no data. "
                      "Each preview is stretched to its own range.</p><div class=\"grid\">")
         for n in stack.names:
@@ -97,6 +115,7 @@ th { font-weight:600; color:var(--muted); font-size:.85rem; }
 .tag { font-size:.8rem; font-weight:600; white-space:nowrap; } .tag.ok { color:var(--ok); } .tag.warn { color:var(--warn); } .tag.fail { color:var(--fail); }
 .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr)); gap:1rem; }
 figure { margin:0; } figure img { width:100%; height:auto; image-rendering:pixelated; border:1px solid var(--line); }
+figure.photo { max-width:36rem; } figure.photo img { image-rendering:auto; }
 figcaption { font-size:.85rem; color:var(--muted); } figcaption strong { color:var(--fg); }
 .foot { color:var(--muted); font-size:.8rem; margin-top:2rem; }
 @media (max-width:40rem) { table, thead, tbody, tr, td { display:block; } thead { display:none; } td { border:0; padding:.1rem 0; } tr { border-bottom:1px solid var(--line); padding:.5rem 0; } }

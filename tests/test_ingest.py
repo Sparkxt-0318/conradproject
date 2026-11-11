@@ -126,6 +126,13 @@ def test_flight_geometry_of_a_grid_flight():
     assert g.speed_ms == pytest.approx(5, abs=0.01) and g.height_m == 40
 
 
+def test_speed_ignores_skipped_photos_and_turns():
+    shots = _shots()
+    gappy = [s for i, s in enumerate(shots) if i % 20 not in (7, 8, 9)]      # three photos lost on every line
+    g = flight_geometry(gappy)
+    assert g.speed_ms == pytest.approx(5, abs=0.05) and g.spacing_m == pytest.approx(5, abs=0.01)
+
+
 def test_flight_geometry_orders_by_time_not_name():
     shots = _shots()
     shuffled = [Shot(f"z{99 - i:03d}.jpg", s.lat, s.lon, s.alt_m, s.agl_m, s.time) for i, s in enumerate(shots)]

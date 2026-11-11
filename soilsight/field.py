@@ -1,7 +1,7 @@
 """One field visit is one folder. This module knows where everything in it lives.
 
     <field>/
-      field.toml            optional settings (sensor, flying height, grid size)
+      field.toml            optional settings (camera, flying height, grid size)
       photos/               the drone photos
       capture.csv           optional: positions written by the capture computer
       annotations.geojson   optional: field boundary, inlet, outlet, ditches, grey card
@@ -21,6 +21,8 @@ from pathlib import Path
 class FieldConfig:
     name: str = ""
     sensor: str = ""                    # a profile name from sensors.toml; empty: derive from the photos
+    camera: dict | None = None          # or describe the camera here: a [camera] table with the
+                                        # fields of a sensors.toml entry (width_px, height_px, ...)
     flight_height_m: float | None = None  # above ground; used when photos do not record it
     grid_m: float = 1.0                 # cell size of the map layers
     smooth_m: float = 3.0               # layers are smoothed over about this distance

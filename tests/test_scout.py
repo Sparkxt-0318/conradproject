@@ -28,6 +28,22 @@ def test_field_config_defaults_and_file(field_dir):
         field_dir.config()
 
 
+def test_field_config_can_describe_any_camera(flown_field):
+    fd, _ = flown_field
+    fd.config_path.write_text('flight_height_m = 50\n[camera]\nname = "WX220"\nwidth_px = 4896\nheight_px = 3672\n'
+                              'pixel_um = 1.26\nfocal_mm = 4.45\nshutter = "rolling"\n')
+    _, profile, checks = check_flight(fd)
+    assert profile.name == "WX220" and profile.gsd_m(50) * 100 == pytest.approx(1.42, abs=0.01)
+    assert next(c for c in checks if c.name == "Rolling-shutter smear").value == "unknown"
+
+
+def test_unknown_camera_is_reported(flown_field):
+    fd, _ = flown_field
+    fd.config_path.unlink()                      # the test photos carry no focal length
+    _, profile, checks = check_flight(fd)
+    assert profile is None and checks[0].name == "Camera" and "[camera]" in checks[0].detail
+
+
 # ---- checks
 
 def test_graded_and_worst():
@@ -126,6 +142,7 @@ def test_stitching_checks(tmp_path):
     st = {c.name: c for c in stitching_checks(fd)}
     assert st["Photos used"].status == "warn" and st["Photos used"].value == "34 of 40"
     assert st["Alignment error"].status == "ok" and st["Ground control points"].status == "warn"
+    assert st["Ground pixel size, measured"].value == "2.0 cm"
     assert not used_ground_control(fd)
     write_stats(fd, gcp=True)
     st = {c.name: c for c in stitching_checks(fd)}
@@ -143,7 +160,7 @@ def test_quality_report_files(built, tmp_path):
     assert [layer["name"] for layer in doc["layers"]] == list(stack.names)
     page = fd.quality_html.read_text()
     assert "Usable, with points to check" in page and "Terrain relief" in page and "low_spot" in page
-    assert page.count("data:image/png;base64,") == 11 and "<script" not in page
+    assert page.count("data:image/png;base64,") == 11 and "<script" not in page      # no orthophoto in this folder
     assert "prefers-color-scheme: dark" in page
 
 
@@ -187,6 +204,8 @@ def test_run_end_to_end(flown_field):
     assert result.overall == "warn" and result.stopped == ""        # warn: no ground control points
     assert len(result.stack.names) == 11
     assert fd.layers_tif.exists() and fd.layers_json.exists() and fd.quality_html.exists()
+    page = fd.quality_html.read_text()
+    assert "<h2>Orthophoto</h2>" in page and page.count("data:image/png;base64,") == 12
     files, options = node.calls[0]
     assert len(files) == 100 and options["dsm"] is True and "rolling-shutter" not in options
     assert options["orthophoto-resolution"] == pytest.approx(2.3, abs=0.01)

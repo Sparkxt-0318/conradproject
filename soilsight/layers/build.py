@@ -96,10 +96,15 @@ def build_layers(fd: FieldDir) -> tuple:
         t_status, t_note = OK, f"relief {relief_cm:.0f} cm, tied to ground control points"
     elif gcp:
         t_status, t_note = WARN, f"relief only {relief_cm:.0f} cm: close to what stitching can resolve"
-    else:
+    elif stats["relief_m"] < 0.5:
         t_status = WARN
         t_note = (f"relief {relief_cm:.0f} cm with no ground control points: stitching alone can bow the "
                   "surface by this much, so hollows and rises may not be real")
+    else:
+        t_status = WARN
+        t_note = (f"relief {relief_cm:.0f} cm with no ground control points: heights are relative and may be "
+                  "off by decimetres across the field; relief this large on farmland usually means trees or "
+                  "buildings inside the boundary")
     checks.append(Check("layers", "Terrain relief", t_status, f"{relief_cm:.0f} cm",
                         t_note + f"; height scatter inside one cell {rough_cm:.1f} cm"))
     for name, a in terrain.items():

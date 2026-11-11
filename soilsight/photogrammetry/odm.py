@@ -137,6 +137,10 @@ def stitching_checks(field: FieldDir, n_photos: int | None = None) -> list:
     if err is not None:
         checks.append(Check("stitching", "Alignment error", graded(float(err), 1.0, 2.0, False), f"{float(err):.2f} px",
                             "how far matched points land from where the camera model puts them"))
+    measured = _get(stats, "odm_processing_statistics", "average_gsd")
+    if measured:
+        checks.append(Check("stitching", "Ground pixel size, measured", INFO, f"{float(measured):.1f} cm",
+                            "from the stitched solution; compare with the flight estimate"))
     gps = _get(stats, "gps_errors", "average_error")
     if gps is not None:
         checks.append(Check("stitching", "Position error", INFO, f"{float(gps):.2f} m",

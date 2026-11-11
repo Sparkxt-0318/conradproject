@@ -130,6 +130,8 @@ def test_terrain_layers_find_the_tilt_and_the_hollow(built):
     i = np.nanargmax(low)
     assert np.hypot(x.ravel()[i] - HOLLOW[0], y.ravel()[i] - HOLLOW[1]) < 2
     assert np.nanmax(low) > 0.05 and np.nanmin(elev) < -0.08
+    edge = stack.grid.mask & ~np.roll(stack.grid.mask, 1, axis=1)          # westernmost column of the field
+    assert np.nanmax(slope[edge]) < 1.0                                    # no false cliff at the boundary
 
 
 def test_terrain_without_ground_control_is_flagged(built, tmp_path):
@@ -144,6 +146,18 @@ def test_terrain_without_ground_control_is_flagged(built, tmp_path):
     write_annotations(fd)
     relief = next(c for c in build_layers(fd)[1] if c.name == "Terrain relief")
     assert relief.status == "warn" and "close to what stitching can resolve" in relief.detail     # only 5 cm of relief
+
+
+def test_large_relief_points_at_trees_and_buildings(tmp_path):
+    fd = FieldDir(tmp_path / "hilly")
+    write_rasters(fd)
+    with rasterio.open(fd.dsm, "r+") as dst:                 # put a 6 m block (a building) in the field
+        z = dst.read(1)
+        z[100:160, 100:200] += 6.0
+        dst.write(z, 1)
+    write_annotations(fd)
+    relief = next(c for c in build_layers(fd)[1] if c.name == "Terrain relief")
+    assert relief.status == "warn" and "trees or buildings" in relief.detail and "bow the surface by this much" not in relief.detail
 
 
 # ---- distance

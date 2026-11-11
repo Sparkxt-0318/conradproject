@@ -54,7 +54,9 @@ def terrain_layers(dsm, grid: FieldGrid, smooth_m: float = 3.0, radius_m: float 
     sigma = smooth_m / 2 / grid.cell
     flat = smooth(np.where(use, z - plane, np.nan), sigma)
     full = smooth(np.where(use, z, np.nan), sigma)
-    filled = np.where(np.isfinite(full), full, np.nanmean(full))
+    # Outside the field, repeat the nearest inside value so the edge is not a false cliff.
+    nearest = ndimage.distance_transform_edt(~np.isfinite(full), return_distances=False, return_indices=True)
+    filled = full[tuple(nearest)]
     gy, gx = np.gradient(filled, grid.cell)
     slope = np.where(use, np.hypot(gx, gy) * 100, np.nan)
     low = _disk_mean(flat, radius_m / grid.cell) - flat

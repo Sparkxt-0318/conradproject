@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from soilsight.field import FieldDir
+from soilsight.ingest.sensors import SensorProfile
 from soilsight.ingest import collect_shots, flight_checks, flight_geometry, get_profile, profile_from_exif, write_geo_txt
 from soilsight.layers import build_layers, save_layers
 from soilsight.photogrammetry.odm import odm_options, stitch, stitching_checks
@@ -26,6 +27,8 @@ class ScoutResult:
 
 
 def _profile(cfg, shots):
+    if cfg.camera:
+        return SensorProfile(**({"name": "custom"} | cfg.camera))
     if cfg.sensor:
         return get_profile(cfg.sensor)
     first = next((s for s in shots if s.width_px), None)
@@ -40,7 +43,11 @@ def check_flight(fd: FieldDir) -> tuple:
     checks = flight_checks(shots, missing, profile, cfg.flight_height_m)
     if profile is not None:
         checks.insert(0, Check("flight", "Camera", INFO, profile.name,
-                               profile.description + ("" if cfg.sensor else "; set sensor in field.toml for exact geometry")))
+                               profile.description + ("" if cfg.sensor or cfg.camera else
+                                                      "; set sensor in field.toml for exact geometry")))
+    else:
+        checks.insert(0, Check("flight", "Camera", INFO, "unknown",
+                               "the photos do not describe the camera; add a [camera] table to field.toml"))
     return shots, profile, checks
 
 

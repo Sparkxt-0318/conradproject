@@ -71,7 +71,8 @@ def flight_geometry(shots, height_m: float | None = None) -> FlightGeometry:
     speed = float("nan")
     if timed:
         dt = np.array([(b.time - a.time).total_seconds() for a, b in zip(shots, shots[1:])])
-        use = on_line & (dt > 0)
+        # Only steps of ordinary length: a skipped photo or a turn would drag the speed down.
+        use = on_line & (dt > 0) & (length > 0.5 * spacing) & (length < 1.5 * spacing)
         if use.any():
             speed = float(length[use].sum() / dt[use].sum())
 
@@ -99,7 +100,7 @@ def flight_checks(shots, missing, profile: SensorProfile | None, height_m: float
 
     known = profile is not None and g.height_m == g.height_m
     if not known:
-        why = "no camera profile" if profile is None else "flying height unknown (set flight_height_m in field.toml)"
+        why = "the camera is not described" if profile is None else "flying height unknown (set flight_height_m in field.toml)"
         checks.append(Check("flight", "Overlap, blur and smear", WARN, "not checked", why))
         return checks
 
