@@ -1,6 +1,6 @@
 # SoilSight software and AI plan
 
-Status: approved. Phases 1 (benchmark), 2 (Brain), 3 (Scout processing) and 4 (Capture) are built; phases 5 to 7 are not started. Phase 2 met two of its three gate items. Phase 3 met its gate on public sample photos, not yet on bare soil or the project's own camera. Phase 4 met its gate in ArduPilot's simulator; nothing in it has run on the real camera or flight controller. See the three result sections.
+Status: approved. Phases 1 (benchmark), 2 (Brain), 3 (Scout processing), 4 (Capture) and 5 (Field app and report) are built; phases 6 and 7 need real fields and are not started. Phase 2 met two of its three gate items. Phase 3 met its gate on public sample photos, not yet on bare soil or the project's own camera. Phase 4 met its gate in ArduPilot's simulator; nothing in it has run on the real camera or flight controller. Phase 5 met its gate in an emulated phone, not yet on a real one. See the result sections.
 
 ## Context
 
@@ -94,15 +94,17 @@ soilsight/
   photogrammetry/ NodeODM via pyodm → orthophoto + surface model, with checks  [built]
   layers/         colour, terrain and distance layers on one grid, each with a quality
                   flag  [built]
-  report/         quality report (HTML + JSON)  [built]; Field Health Report in phase 5
+  report/         map quality report and Field Health Report (HTML + JSON)  [built]
   scout.py        the photos-to-layers pipeline  [built]
   field.py        where everything lives in a field folder  [built]
-  app/            phone web app (FastAPI + offline map): next spot, navigate, enter result
+  app/            field package, hash-chained measurement log, visit replay, and the phone
+                  web app in static/ with the Brain in JavaScript  [built; no server-side
+                  code, so no FastAPI]
   cli.py
 tests/  data/sample_field/  docs/
 ```
 
-Each field is one folder: GeoTIFF layers, a GeoPackage of spots and results, and an append-only, hash-chained measurement log (the "tamper-evident record").
+Each field is one folder: GeoTIFF layers, the field package for the phone, an append-only, hash-chained measurement log (the "tamper-evident record"), and the tests as GeoJSON points (GeoJSON instead of a GeoPackage: no extra dependency, and QGIS opens it the same).
 
 ## Build order (each phase ends on a measured gate)
 
@@ -110,7 +112,7 @@ Each field is one folder: GeoTIFF layers, a GeoPackage of spots and results, and
 2. **Brain (done, gate partly met).** `model/` and `sampling/`. Gate: beats both the PDF loop and the even-spread baseline on the benchmark; 90% ranges cover 85–95%. It beats the PDF loop and its ranges are honest on average, but it does not beat even spread on accuracy. See "Phase 2 result".
 3. **Scout processing (done, gate met on sample photos).** `ingest/`, `photogrammetry/`, `layers/` on a public drone dataset. Gate: one command turns a photo folder into layers and a quality report. See "Phase 3 result".
 4. **Capture (done in simulation; hardware steps open).** `capture/` against ArduPilot's simulator with a fake camera, then the real camera on a pole or cart, then the drone. Gate: every photo geotagged, overlap ≥80%, smear under 1 pixel. Met in the simulator; the hardware steps are written up in `docs/bench-test.md`. See "Phase 4 result".
-5. **Field app and report.** Gate: a full loop run on a phone with no signal.
+5. **Field app and report (done; gate met in an emulated phone).** Gate: a full loop run on a phone with no signal. See "Phase 5 result".
 6. **Truth field.** One field tested densely (about 50 kit tests, 10 lab splits). Replay every method on it offline. The simulation does not support a "same accuracy with X% fewer tests" claim, so the number to measure here is the one it does support: how much less unsafe area is missed, and how often a green zone is really unsafe.
 7. **Across fields.** Shared settings and kit-to-lab correction once three fields exist.
 
@@ -122,27 +124,32 @@ The Brain was run against the two reference strategies on all 12 scenarios × 40
 soilsight sim benchmark brain --check
 ```
 
+These are the numbers for the Brain as corrected during phase 5 (see "Correction" below).
+
 | Average over 12 scenarios | PDF loop | Even spread + kriging | Brain |
 |---|---|---|---|
-| Field classed correctly | 75.8% | 79.3% | 78.7% |
-| Balanced accuracy | 0.665 | 0.682 | 0.694 |
-| Unsafe area missed | 51.3% | 52.3% | 47.6% |
-| Map error (ln units) | 0.349 | 0.301 | 0.320 |
-| Truth inside the "90%" ranges | 73.9% | 82.1% | 86.1% |
+| Field classed correctly | 75.8% | 79.3% | 78.8% |
+| Balanced accuracy | 0.665 | 0.682 | 0.693 |
+| Unsafe area missed | 51.3% | 52.3% | 48.0% |
+| Map error (ln units) | 0.349 | 0.301 | 0.309 |
+| Truth inside the "90%" ranges | 73.9% | 82.1% | 90.9% |
 
 | Gate item | Result |
 |---|---|
-| Beats the PDF loop on accuracy | Pass: +2.9 points ± 0.4 (standard error, paired by field) |
-| Beats even spread on accuracy | **Fail: −0.6 points ± 0.4.** It is level, not ahead. It misses less unsafe area (−4.8 points ± 1.6) and has better balanced accuracy (+1.3 points ± 0.6) |
-| 90% ranges cover 85–95% | Pass on average (86.1%); below 85% in four scenarios (81–84%) |
+| Beats the PDF loop on accuracy | Pass: +3.0 points ± 0.4 (standard error, paired by field) |
+| Beats even spread on accuracy | **Fail: −0.5 points ± 0.4.** It is level, not ahead. It misses less unsafe area (−4.3 points ± 1.6) and has better balanced accuracy (+1.1 points ± 0.6) |
+| 90% ranges cover 85–95% | Pass: 90.9% on average, and inside 85–95% in eleven of twelve scenarios (the twelfth is 96%, slightly cautious) |
 
 What this means:
 
 - **No strategy beats an even spread on plain accuracy at 15 tests.** With 22% kit error and metre-scale scatter, 15 tests carry too little information for clever placement to matter much. The Brain's gain is where it looks: the safe/unsafe boundary, so less unsafe ground is called safe.
-- **The Brain's zone answers are cautious.** It calls 22% of zones "not sure", and 2.7% of the zones it calls green are really unsafe.
+- **The Brain's uncertainty can be taken at face value.** Its 90% ranges hold the truth 91% of the time; the reference strategies' hold it 74% and 82%.
+- **The Brain's zone answers are cautious.** It calls 27% of zones "not sure", and 2.7% of the zones it calls green are really unsafe.
 - **The comparison is slightly unfair to the Brain.** The reference strategies are told the field's true metre-scale scatter; the Brain has to estimate it.
 - **Drone layers stay off.** On the tuning fields they added nothing, even where they explained 60% of the cadmium pattern. With 15 tests the model's weight on "layers matter" averaged 0.42 for junk layers and 0.67 for real ones, against a starting value of 0.50. Whether layers help has to be learned across fields (phase 7).
 - **The soil-to-grain formula has no coefficients built in.** None has been checked against this kit's extraction; they must come from a paper using the same extraction or from paired soil and grain samples.
+
+**Correction (made in phase 5).** The Brain as first built in phase 2 was overconfident when tests were few: after one reading a little above the threshold it called the whole field unsafe at 95%. It kept the 24 best-fitting of its 512 candidate settings, and with few tests all candidates fit about equally, so "the 24 best" were simply the 24 that assume the least variation. It now takes a proportional draw across all candidates, and no longer centres readings on their own average. The change was checked on the tuning fields first (ranges holding the truth 91% of the time against 86%, accuracy unchanged) and then run once on the benchmark. Against the first version's benchmark numbers: accuracy 78.8% (was 78.7%), unsafe area missed 48.0% (was 47.6%), map error 0.309 (was 0.320), ranges holding the truth 90.9% (was 86.1%, with four scenarios below 85%), zones answered "not sure" 27% (was 22%). The gate verdict did not change.
 
 ## Phase 3 result
 
@@ -228,6 +235,40 @@ Not shown by simulation (procedure in `docs/bench-test.md`):
 - **Real GPS and serial delay.** Simulated positions were within about 10 cm of the truth. A real GPS without RTK is off by a metre or more, and a fixed link delay shifts every recorded position along the flight line by speed × delay.
 - **Clock rates.** The clock matching assumes the Pi and the flight controller tick at the same rate, true to parts per million on hardware. The simulator therefore has to run in real time.
 
+## Phase 5 result
+
+The field app is a web page that runs a whole visit on the phone with no network: it guides to each spot, records samples and readings, refits the map after every result, proposes the next spot, and exports the visit's log. The Field Health Report is then made on the laptop from that log.
+
+Gate: a full loop run on a phone with no signal. **Met in emulation.** An automated test loads the app in Chromium emulating a Pixel 7, cuts the network, reloads the page (it starts from the phone's own copy), and then acts as a person would: it moves the phone's GPS position to each spot, taps "Sample taken here", types the readings, and follows the spots the app proposes until the test budget is used. It reloads the app once mid-visit to check nothing is lost.
+
+| Check | Result |
+|---|---|
+| Visit completed with the network off | Yes: 10 of 10 tests in the automated test (6 spread, 4 proposed by the app); 12 and 15 in two longer runs |
+| The phone's log verifies on the laptop | Yes, every entry |
+| Phone's zone answers against the reference Brain replaying the log | Same labels; chance-unsafe values agree to better than 0.000001 |
+| The phone's Brain against the Python Brain, step by step through a loop | Same candidate weights, same map to 8 decimal places, same next spot at every step |
+| A log edited after the fact | Refused, naming the first altered entry |
+
+How it works:
+
+- **The Brain runs on the phone.** The model and the next-spot rule are written a second time in JavaScript (`soilsight/app/static/brain.js`). Python stays the reference: a test runs both on the same field through a whole loop and fails if they differ. The field package carries the model's candidate settings, so both start from the same numbers.
+- **One file per field.** `soilsight app package` writes everything the phone needs (grid, photo of the field, zones, protocol, first spots) into one JSON file of about 100 KB.
+- **The log is the visit.** Every sample, result and proposed spot is an entry chained to the one before by its hash. The app's screen is rebuilt from the log, a correction is a new entry, and the report is made only from a log that verifies.
+- **The report** gives one answer per zone (probably safe, not sure, probably unsafe) with the chance behind it, a three-class map, which samples to send to an accredited lab (about one in ten, plus the highest reading), every test, and the log's fingerprint. It states that it is a screening result and that it does not calculate a lime dose.
+
+Differences from the plan as first written:
+
+- **No server.** The plan had a FastAPI backend. With the Brain on the phone there is nothing for a server to do, so the app is plain files that any web host can serve.
+- **Samples are collected first, tested after.** Because a kit test takes about ten minutes at the dock, the app separates "sample taken" from "result entered", and proposes the next spot once every collected sample has its result.
+- **The threshold has no default.** The app asks for it at the start of the visit unless `field.toml` sets it, because the right value comes from the kit-to-lab comparison, which does not exist yet.
+
+Not shown by emulation:
+
+- **A real phone.** Only Chromium emulating an Android phone was used. Safari on an iPhone, a small screen in sunlight, and real GPS (off by 2 to 5 m without RTK, and slow to settle) are untested.
+- **Getting the app onto the phone.** A phone gives a page GPS and keeps it for offline use only on an https address. The app's folder has to be put on an https web host once; this was not done. Access to such a host from China should be checked before relying on it.
+- **Storage limits.** The log and field package live in the browser's storage, which a phone may clear if it runs short of space. Export the log at the end of every visit.
+- **The readings.** All test visits used invented cadmium patterns and simulated kit readings.
+
 ## Verification
 
 - `pytest`: GP checked against closed-form cases; design and geotag unit tests.
@@ -235,6 +276,7 @@ Not shown by simulation (procedure in `docs/bench-test.md`):
 - `soilsight scout run data/sample_field --skip-stitch`: real stitched outputs → layers → quality report. With photos and a NodeODM server, `soilsight scout run <field>` does the whole chain.
 - `soilsight capture simulate <field> --sitl ... --defaults ...`: the real ArduCopter code flies a survey in simulation while the capture software records it; `soilsight scout check <field>` then judges the flight.
 - `soilsight capture bench`: photo rate and sharpness of the real camera, on the Pi. Procedure in `docs/bench-test.md`.
+- `pytest tests/test_app.py`: runs the phone's Brain in Node against the Python Brain, and a whole visit in an emulated phone with the network cut (needs Node.js and Playwright; skipped without them).
 
 ## Decisions (agreed)
 

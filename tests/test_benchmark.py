@@ -142,15 +142,17 @@ def test_brain_reference_holds_the_reported_gate_result():
     # Numbers quoted in docs/software-plan.md.
     assert avg(bm.PDF_LOOP, "acc") == pytest.approx(0.758, abs=6e-4)
     assert avg(bm.EVEN_SPREAD, "acc") == pytest.approx(0.793, abs=6e-4)
-    assert avg(bm.BRAIN, "acc") == pytest.approx(0.787, abs=6e-4)          # level with even spread, not ahead
-    assert avg(bm.BRAIN, "missed") == pytest.approx(0.476, abs=6e-4)
+    assert avg(bm.BRAIN, "acc") == pytest.approx(0.788, abs=6e-4)          # level with even spread, not ahead
+    assert avg(bm.BRAIN, "missed") == pytest.approx(0.480, abs=6e-4)
     assert avg(bm.EVEN_SPREAD, "missed") == pytest.approx(0.523, abs=6e-4)
-    assert avg(bm.BRAIN, "cov") == pytest.approx(0.861, abs=6e-4)
+    assert avg(bm.BRAIN, "cov") == pytest.approx(0.909, abs=6e-4)          # honest ranges: 90% nominal
+    outside = [s for s in SCENARIOS if not 0.85 <= _row(rows, s, bm.BRAIN)["cov"] <= 0.95]
+    assert outside == ["S11"]
     assert avg(bm.EVEN_SPREAD, "cov") == pytest.approx(0.821, abs=6e-4)
     assert avg(bm.PDF_LOOP, "cov") == pytest.approx(0.739, abs=6e-4)
     assert avg(bm.BRAIN, "zone_fgreen") == pytest.approx(0.027, abs=6e-4)
-    assert avg(bm.BRAIN, "zone_yellow") == pytest.approx(0.222, abs=6e-4)
-    assert avg("Brain, 3 cores", "acc") == pytest.approx(0.795, abs=6e-4)
+    assert avg(bm.BRAIN, "zone_yellow") == pytest.approx(0.266, abs=6e-4)
+    assert avg("Brain, 3 cores", "acc") == pytest.approx(0.791, abs=6e-4)
     assert avg("spatial + OK MAP, 3 cores", "acc") == pytest.approx(0.789, abs=6e-4)
 
 
