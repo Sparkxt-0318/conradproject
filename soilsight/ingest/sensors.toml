@@ -1,0 +1,32 @@
+# Camera profiles. Sizes are the image as saved; pixel_um is the pixel pitch on the sensor at
+# that image size (so a 2x2-binned mode has twice the pitch).
+#
+# readout_ms is how long a rolling shutter takes to scan one frame. The Raspberry Pi values
+# were computed from the kernel driver's line timing, not measured: measure them before
+# trusting a map made with rolling-shutter correction.
+
+[pi_gs_6mm]
+description = "Raspberry Pi Global Shutter Camera (IMX296) with a 6 mm lens"
+width_px = 1456
+height_px = 1088
+pixel_um = 3.45
+focal_mm = 6.0
+shutter = "global"
+
+[pi_cm3_binned]
+description = "Raspberry Pi Camera Module 3 (IMX708), 2x2-binned 2304x1296 mode"
+width_px = 2304
+height_px = 1296
+pixel_um = 2.8
+focal_mm = 4.74
+shutter = "rolling"
+readout_ms = 17.0
+
+[pi_cm3_full]
+description = "Raspberry Pi Camera Module 3 (IMX708), full 4608x2592 mode"
+width_px = 4608
+height_px = 2592
+pixel_um = 1.4
+focal_mm = 4.74
+shutter = "rolling"
+readout_ms = 68.0

@@ -66,6 +66,31 @@ def _benchmark(a) -> int:
     return 0
 
 
+def _scout_check(a) -> int:
+    from soilsight.field import FieldDir
+    from soilsight.report.checks import worst
+    from soilsight.scout import check_flight
+
+    _, _, checks = check_flight(FieldDir(a.field))
+    width = max(len(c.name) for c in checks)
+    for c in checks:
+        print(f"{c.status:5s} {c.name:{width}s}  {c.value}" + (f"  ({c.detail})" if c.detail else ""))
+    return 1 if worst(checks) == "fail" else 0
+
+
+def _scout_run(a) -> int:
+    from soilsight.field import FieldDir
+    from soilsight.scout import run
+
+    result = run(FieldDir(a.field), node_url=a.node, skip_stitch=a.skip_stitch, fast=a.fast, force=a.force,
+                 log=lambda msg: print(msg, file=sys.stderr, flush=True))
+    for c in result.checks:
+        if c.status in ("warn", "fail"):
+            print(f"{c.status:5s} {c.stage}: {c.name}: {c.value}" + (f"  ({c.detail})" if c.detail else ""))
+    print(f"overall: {result.overall}" + (f"  {result.stopped}" if result.stopped else ""))
+    return 1 if result.overall == "fail" else 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="soilsight", description="SoilSight tools")
     sub = ap.add_subparsers(dest="command", required=True)
@@ -82,6 +107,20 @@ def main(argv=None) -> int:
     b.add_argument("--check", action="store_true", help="fail if results differ from the stored reference")
     b.add_argument("--write-expected", action="store_true", help="overwrite the stored reference with this run")
     b.set_defaults(func=_benchmark)
+
+    scout = sub.add_parser("scout", help="from drone photos to map layers").add_subparsers(dest="scout_command", required=True)
+    c = scout.add_parser("check", help="judge a flight from its photo positions, before stitching")
+    c.add_argument("field", help="the field folder (holds photos/)")
+    c.set_defaults(func=_scout_check)
+    r = scout.add_parser("run", help="stitch the photos, build the layers and write the quality report",
+                         description="Turn a field folder's photos into map layers and a quality report. "
+                                     "Stitching needs a NodeODM server: docker run -d -p 3000:3000 opendronemap/nodeodm")
+    r.add_argument("field", help="the field folder (holds photos/)")
+    r.add_argument("--node", default="http://localhost:3000", help="NodeODM address (default: %(default)s)")
+    r.add_argument("--skip-stitch", action="store_true", help="use the orthophoto and surface model already in odm/")
+    r.add_argument("--fast", action="store_true", help="lower stitching quality, for a quick trial")
+    r.add_argument("--force", action="store_true", help="stitch even if the flight checks fail")
+    r.set_defaults(func=_scout_run)
     a = ap.parse_args(argv)
     return a.func(a)
 

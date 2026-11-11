@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "soilsight"
 version = "0.1.0"
 description = "Software for SoilSight: drone-guided soil checks for rice fields"
-requires-python = ">=3.10"
-dependencies = ["numpy>=1.26", "scipy>=1.11"]
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "rasterio>=1.4", "pillow>=10", "pyodm>=1.5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -20,6 +20,7 @@ include = ["soilsight*"]
 
 [tool.setuptools.package-data]
 "soilsight.sim" = ["expected/*.json"]
+"soilsight.ingest" = ["sensors.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
