@@ -37,11 +37,23 @@ def test_field_config_can_describe_any_camera(flown_field):
     assert next(c for c in checks if c.name == "Rolling-shutter smear").value == "unknown"
 
 
+def test_flight_log_that_does_not_match_is_reported_and_exif_used(flown_field, monkeypatch):
+    import soilsight.ingest.flightlog as fl
+    fd, _ = flown_field
+    fd.flight_log.write_bytes(b"")
+    monkeypatch.setattr(fl, "read_camera_log", lambda path: [])
+    _, _, checks = check_flight(fd)
+    by = {c.name: c for c in checks}
+    assert by["Flight log"].status == "warn" and "100 photos but 0 camera triggers" in by["Flight log"].detail
+    assert by["Positions from"].value == "the photos' EXIF" and by["Photos with a position"].status == "ok"
+
+
 def test_unknown_camera_is_reported(flown_field):
     fd, _ = flown_field
     fd.config_path.unlink()                      # the test photos carry no focal length
     _, profile, checks = check_flight(fd)
-    assert profile is None and checks[0].name == "Camera" and "[camera]" in checks[0].detail
+    camera = next(c for c in checks if c.name == "Camera")
+    assert profile is None and "[camera]" in camera.detail
 
 
 # ---- checks

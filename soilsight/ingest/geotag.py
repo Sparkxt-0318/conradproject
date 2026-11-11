@@ -1,8 +1,9 @@
 """Where and when each photo was taken.
 
-Two sources, in order of preference:
+Three sources, in order of preference:
 
   capture.csv   written by the drone's capture computer next to the photos
+  flight.bin    the flight controller's log of its own camera triggers
   EXIF          GPS tags inside the photos (any off-the-shelf drone)
 
 The result is written as an OpenDroneMap geo.txt, so the photos themselves are never modified.
@@ -112,6 +113,8 @@ def read_sidecar(csv_path) -> list:
         if missing:
             raise ValueError(f"{csv_path}: missing column(s) {', '.join(sorted(missing))}")
         for row in reader:
+            if not (row.get("lat") or "").strip() or not (row.get("lon") or "").strip():
+                continue          # the capture computer lists a photo it could not place; treat it as unplaced
             when = None
             stamp = (row.get("time_utc") or "").strip()
             if stamp:
@@ -124,13 +127,18 @@ def read_sidecar(csv_path) -> list:
     return shots
 
 
-def collect_shots(photo_dir, sidecar=None) -> tuple:
-    """Every photo's position: from the sidecar where it lists the photo, else from EXIF.
+def collect_shots(photo_dir, sidecar=None, flight_log=None) -> tuple:
+    """Every photo's position: from the sidecar where it lists the photo, else from the flight
+    log's camera triggers, else from EXIF.
 
     Returns (shots, photos without any position). Image size and camera model always come
-    from the photo itself.
+    from the photo itself. A sidecar line with no position counts as no position. Raises
+    ValueError if a flight log is given but its triggers cannot be paired with the photos.
     """
     listed = {s.file: s for s in read_sidecar(sidecar)} if sidecar and Path(sidecar).exists() else {}
+    if not listed and flight_log and Path(flight_log).exists():
+        from soilsight.ingest.flightlog import shots_from_flight_log
+        listed = {s.file: s for s in shots_from_flight_log(photo_dir, flight_log)}
     shots, missing = [], []
     for path in list_photos(photo_dir):
         from_exif = read_exif(path)

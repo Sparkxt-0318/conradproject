@@ -107,6 +107,13 @@ def flight_checks(shots, missing, profile: SensorProfile | None, height_m: float
                         "" if g.n_shots >= 20 else "small sets often fail to stitch"))
     checks.append(Check("flight", "Flight lines", INFO, str(g.n_lines)))
 
+    tilts = [float(np.hypot(s.pitch_deg, s.roll_deg)) for s in shots if s.pitch_deg is not None and s.roll_deg is not None]
+    if tilts:
+        typical, high = float(np.median(tilts)), float(np.percentile(tilts, 90))
+        checks.append(Check("flight", "Camera tilt", OK if high <= 25 else WARN, f"{typical:.0f}° typical, {high:.0f}° at most",
+                            "a fixed camera leans with the drone; a steady lean stitches fine" if high <= 25 else
+                            "photos this far off vertical cover the ground unevenly; fly slower or in less wind"))
+
     known = profile is not None and g.height_m == g.height_m
     if not known:
         why = "the camera is not described" if profile is None else "flying height unknown (set flight_height_m in field.toml)"

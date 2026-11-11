@@ -328,3 +328,47 @@ def test_survey_mission_and_waypoint_file(stitched_field, tmp_path):
     with pytest.raises(ValueError, match="no feature with role 'boundary'"):
         (tmp_path / "empty.geojson").write_text('{"type": "FeatureCollection", "features": []}')
         boundary_lonlat(tmp_path / "empty.geojson")
+
+
+# ---- command line
+
+def test_cli_plan_prints_settings_and_writes_a_mission(stitched_field, tmp_path, capsys):
+    from soilsight.cli import main
+    out = tmp_path / "m.waypoints"
+    assert main(["capture", "plan", "--sensor", "pi_gs_6mm", "--boundary", str(stitched_field.annotations),
+                 "--mission", str(out)]) == 0
+    text = capsys.readouterr().out
+    assert "photo every       5.0 m" in text and "none (global shutter)" in text and "4 flight lines" in text
+    assert out.read_text().startswith("QGC WPL 110")
+
+
+def test_cli_plan_refuses_a_speed_the_camera_cannot_take(capsys):
+    from soilsight.cli import main
+    assert main(["capture", "plan", "--sensor", "pi_cm3_binned"]) == 1
+    assert "too fast for this camera" in capsys.readouterr().out
+    assert main(["capture", "plan", "--sensor", "pi_cm3_binned", "--speed", "1.3"]) == 0
+    with pytest.raises(SystemExit, match="name the camera"):
+        main(["capture", "plan"])
+    assert main(["capture", "plan", "--sensor", "pi_gs_6mm", "--mission", "x.waypoints"]) == 2
+
+
+def test_run_capture_loop(tmp_path):
+    from soilsight.capture.link import run_capture
+
+    class Link:                                   # hands out a stand-in drone's messages
+        def __init__(self, vehicle, clock):
+            self.v, self.clock = vehicle, clock
+
+        def poll(self):
+            return self.v.messages_until(self.clock.now)
+
+    clock = SimClock()
+    v = FakeVehicle(grid_path(lines=1))
+    clock.now = v.t0 + v.offset - 1.0
+    session = Session(FieldDir(tmp_path / "f"), FakeCamera(clock=clock), DistanceTrigger(5.0), clock=clock)
+    end = v.t0 + v.offset + v.duration + 2.0
+    lines = []
+    taken = run_capture(session, Link(v, clock), stop=lambda: clock.now > end, log=lines.append,
+                        sleep=lambda dt: setattr(clock, "now", clock.now + dt))
+    assert taken == len(session.shots) == 14 and lines[0] == "photo 1: img_000001.jpg"
+    assert len(read_sidecar(session.field.sidecar)) == 14          # closed and written out

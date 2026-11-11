@@ -4,6 +4,7 @@
       field.toml            optional settings (camera, flying height, grid size)
       photos/               the drone photos
       capture.csv           optional: positions written by the capture computer
+      flight.bin            optional: the flight controller's log (positions of its camera triggers)
       annotations.geojson   optional: field boundary, inlet, outlet, ditches, grey card
       work/geo.txt          photo positions handed to the stitcher
       odm/                  stitched orthophoto and surface model
@@ -42,6 +43,7 @@ class FieldDir:
     work = property(lambda self: self.root / "work")
     geo_txt = property(lambda self: self.root / "work" / "geo.txt")
     gcp_list = property(lambda self: self.root / "gcp_list.txt")
+    flight_log = property(lambda self: self.root / "flight.bin")
     odm = property(lambda self: self.root / "odm")
     orthophoto = property(lambda self: self.root / "odm" / "odm_orthophoto.tif")
     dsm = property(lambda self: self.root / "odm" / "dsm.tif")

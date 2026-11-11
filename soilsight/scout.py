@@ -38,9 +38,19 @@ def _profile(cfg, shots):
 def check_flight(fd: FieldDir) -> tuple:
     """Read the photo folder and judge the flight. Returns (shots, profile, checks)."""
     cfg = fd.config()
-    shots, missing = collect_shots(fd.photos, fd.sidecar)
+    log_problem = None
+    try:
+        shots, missing = collect_shots(fd.photos, fd.sidecar, fd.flight_log)
+    except ValueError as err:          # the flight log does not match the photos: say so, use what else there is
+        log_problem = str(err)
+        shots, missing = collect_shots(fd.photos, fd.sidecar)
     profile = _profile(cfg, shots)
     checks = flight_checks(shots, missing, profile, cfg.flight_height_m)
+    if shots:
+        source = {"sidecar": "capture.csv", "flight log": "flight.bin", "exif": "the photos' EXIF"}[shots[0].source]
+        checks.insert(0, Check("flight", "Positions from", INFO, source))
+    if log_problem:
+        checks.insert(0, Check("flight", "Flight log", WARN, "not used", log_problem))
     if profile is not None:
         checks.insert(0, Check("flight", "Camera", INFO, profile.name,
                                profile.description + ("" if cfg.sensor or cfg.camera else

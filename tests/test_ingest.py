@@ -99,6 +99,34 @@ def test_collect_prefers_the_sidecar_and_lists_photos_without_position(tmp_path)
     assert by["b.jpg"].source == "exif"
 
 
+def test_sidecar_line_without_a_position_counts_as_unplaced(tmp_path):
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    write_photo(photos / "img_000001.jpg")
+    write_photo(photos / "img_000002.jpg")
+    (tmp_path / "capture.csv").write_text("file,time_utc,lat,lon,alt_m\nimg_000001.jpg,,28.1,113.1,80\nimg_000002.jpg,,,,\n")
+    shots, missing = collect_shots(photos, tmp_path / "capture.csv")
+    assert [s.file for s in shots] == ["img_000001.jpg"] and missing == ["img_000002.jpg"]
+
+
+def test_positions_from_the_flight_log_pair_by_order(tmp_path, monkeypatch):
+    import soilsight.ingest.flightlog as fl
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        write_photo(photos / name)
+    log = tmp_path / "flight.bin"
+    log.write_bytes(b"")
+    triggers = [Shot("", 28.0 + i * 1e-4, 113.0, 90.0, 40.0, yaw_deg=10.0, source="flight log") for i in range(3)]
+    monkeypatch.setattr(fl, "read_camera_log", lambda path: triggers)
+    shots, missing = collect_shots(photos, tmp_path / "none.csv", log)
+    assert [s.file for s in shots] == ["a.jpg", "b.jpg", "c.jpg"] and missing == []
+    assert shots[2].lat == pytest.approx(28.0002) and shots[0].source == "flight log" and shots[0].width_px == 64
+    monkeypatch.setattr(fl, "read_camera_log", lambda path: triggers[:2])
+    with pytest.raises(ValueError, match="3 photos but 2 camera triggers"):
+        collect_shots(photos, None, log)
+
+
 def test_geo_txt_writes_complete_column_groups(tmp_path):
     out = tmp_path / "geo.txt"
     bare = [Shot("a.jpg", 28.1, 113.2, 80.0), Shot("b.jpg", 28.2, 113.3)]
@@ -175,6 +203,16 @@ def test_unknown_height_is_reported_not_guessed():
     assert st["Overlap, blur and smear"] == "warn" and "Forward overlap" not in st
     st = _status(flight_checks(shots, [], get_profile("pi_gs_6mm"), height_m=40))     # planned height given
     assert st["Forward overlap"] == "ok"
+
+
+def test_camera_tilt_is_reported_and_flagged_when_large():
+    def tilted(pitch):
+        return [Shot(s.file, s.lat, s.lon, s.alt_m, s.agl_m, s.time, yaw_deg=0, pitch_deg=pitch, roll_deg=1.0) for s in _shots()]
+    steady = next(c for c in flight_checks(tilted(-12.0), [], get_profile("pi_gs_6mm")) if c.name == "Camera tilt")
+    assert steady.status == "ok" and steady.value.startswith("12° typical")
+    wild = next(c for c in flight_checks(tilted(-30.0), [], get_profile("pi_gs_6mm")) if c.name == "Camera tilt")
+    assert wild.status == "warn"
+    assert "Camera tilt" not in _status(flight_checks(_shots(), [], get_profile("pi_gs_6mm")))    # no angles recorded
 
 
 def test_too_few_photos():
