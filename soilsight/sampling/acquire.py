@@ -42,7 +42,7 @@ def next_spot(post: Posterior, cand_xy, cells_xy, *, kit_sd: float, cores: int =
     kit_sd, cores  the planned test: kit error and cores mixed into it
     taken_xy, min_sep_m  keep the new spot this far from earlier ones
     """
-    post = post.top(max_components)
+    post = post.thin(max_components)
     use = post.obs_feats is not None
     fc, fz = (cand_feats, cells_feats) if use else (None, None)
     d_cand_obs = _dist(cand_xy, post.obs_xy)

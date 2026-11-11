@@ -56,12 +56,13 @@ class Brain:
     to map from position alone. fixed_xy: spots that must be tested (inlet, outlet)."""
 
     def __init__(self, xy, feats=None, fixed_xy=None, protocol: Protocol = Protocol(),
-                 priors: Priors = Priors(), kernel: str = "matern32", seed: int = 0):
+                 priors: Priors = Priors(), kernel: str = "matern32", seed: int = 0, center_on_tests: bool = False,
+                 select: str = "resample"):
         self.xy = np.asarray(xy, float)
         self.feats = None if feats is None else np.asarray(feats, float)
         self.fixed_xy = fixed_xy
         self.protocol = protocol
-        self._gp = SoilGP(priors, kernel, seed=seed)
+        self._gp = SoilGP(priors, kernel, seed=seed, center_on_tests=center_on_tests, select=select)
         self._rng = np.random.default_rng(seed)
         self._cand = _thin(self.xy, protocol.cand_spacing_m)
         self._eval = _thin(self.xy, protocol.eval_spacing_m)

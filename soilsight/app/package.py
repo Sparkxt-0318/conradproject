@@ -103,13 +103,23 @@ def build_package(name: str, rows, cols, nx: int, ny: int, cell_m: float, *, pro
     )
 
 
-def package_from_sim(fld, name: str = "Simulated field", protocol: Protocol = Protocol(), threshold: float = 1.0, seed: int = 0) -> dict:
-    """A package for a synthetic field (soilsight.sim), for tests and demonstrations."""
+def package_from_sim(fld, name: str = "Simulated field", protocol: Protocol = Protocol(), threshold: float | None = 1.0,
+                     seed: int = 0, corner_lonlat=None) -> dict:
+    """A package for a synthetic field (soilsight.sim), for tests and demonstrations.
+
+    corner_lonlat places the field's south-west corner on the Earth, so the app's GPS
+    guidance can be exercised; None leaves the package without a position.
+    """
     g = fld.grid
     n = np.arange(g.n)
     rows, cols = g.ny - 1 - n // g.nx, n % g.nx          # the sim's cell 0 is the south-west corner
+    to_lonlat = None
+    if corner_lonlat is not None:
+        from soilsight.geo import metres_per_degree
+        m_lon, m_lat = metres_per_degree(corner_lonlat[1])
+        to_lonlat = (1 / m_lon, 0.0, corner_lonlat[0], 0.0, 1 / m_lat, corner_lonlat[1])
     return build_package(name, rows, cols, g.nx, g.ny, g.cell, protocol=protocol, zone_ids=g.zone,
-                         fixed_cells=(fld.i_in, fld.i_out), threshold=threshold, seed=seed)
+                         fixed_cells=(fld.i_in, fld.i_out), threshold=threshold, seed=seed, to_lonlat=to_lonlat)
 
 
 def package_from_field(fd) -> dict:

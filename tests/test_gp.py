@@ -31,7 +31,7 @@ def _textbook(post, c, xy, feats, obs_y, noise_sd, cores):
     kxx = kern(post.obs_xy, post.obs_xy, fo, fo) + np.diag(
         np.full(len(obs_y), noise_sd ** 2 + c.nugget_sd ** 2 / cores + 1e-8))
     ks = kern(xy, post.obs_xy, feats, fo)
-    mu = ks @ np.linalg.solve(kxx, obs_y - obs_y.mean()) + obs_y.mean()
+    mu = ks @ np.linalg.solve(kxx, obs_y - post.y_mean) + post.y_mean
     var = np.diag(kern(xy, xy, feats, feats)) - np.einsum("ij,ji->i", ks, np.linalg.solve(kxx, ks.T))
     return mu, np.sqrt(var)
 
@@ -71,7 +71,7 @@ def test_averaging_candidates_widens_uncertainty(small_field, data):
     idx, xy, y = data
     cells = small_field.grid.xy[::50]
     many = SoilGP(top_k=24).fit(xy, y, 0.22)
-    one = many.top(1)
+    one = many.thin(1)
     assert one.weights.tolist() == [1.0]
     spread = many.weights @ many.component_moments(cells)[1] ** 2     # average within-candidate variance
     assert (many.predict(cells).sd ** 2 >= spread - 1e-12).all()     # disagreement only adds
@@ -166,9 +166,37 @@ def test_area_mean(small_field, data):
     assert 0 < float(area.p_unsafe) < 1
 
 
+def test_resample_represents_the_whole_spread():
+    from soilsight.model.gp import resample
+    idx, w = resample(np.array([0.1, 0.1, 0.6, 0.1, 0.1]), 4)
+    assert idx.tolist() == [1, 2, 3] and w.tolist() == [0.25, 0.5, 0.25]
+    idx, w = resample(np.ones(512), 24)                       # all equal: an even spread, not the first 24
+    assert len(idx) == 24 and np.allclose(w, 1 / 24) and idx.max() > 480 and np.all(np.diff(idx) > 15)
+    idx, w = resample(np.array([1e-9, 1.0, 1e-9]), 24)        # one dominant: just that one
+    assert idx.tolist() == [1] and w.tolist() == [1.0]
+
+
+def test_one_test_does_not_decide_the_whole_field():
+    """A single reading a little above the threshold leaves the far side of the field unsure."""
+    post = SoilGP().fit(np.array([[10.0, 10.0]]), [0.47], 0.22, cores=3)
+    near, far = post.predict(np.array([[10.0, 10.0], [100.0, 80.0]])).p_unsafe
+    assert near > 0.9 and 0.6 < far < 0.8
+    # The two shortcuts this model avoids, each of which calls the far side "unsafe" outright:
+    old = SoilGP(select="heaviest", center_on_tests=True).fit(np.array([[10.0, 10.0]]), [0.47], 0.22, cores=3)
+    assert old.predict(np.array([[100.0, 80.0]])).p_unsafe[0] > 0.9
+
+
+def test_field_average_is_pulled_towards_the_threshold_only_weakly():
+    xy = np.array([[10.0, 10.0], [60.0, 20.0], [30.0, 50.0], [70.0, 55.0]])
+    high = SoilGP().fit(xy, [1.5, 1.4, 1.6, 1.5], 0.1).predict(np.array([[40.0, 30.0]]))
+    assert high.mean[0] == pytest.approx(1.5, abs=0.15) and high.p_unsafe[0] > 0.95
+
+
 def test_bad_inputs_are_rejected():
     with pytest.raises(ValueError, match="kernel"):
         SoilGP(kernel="cubic")
+    with pytest.raises(ValueError, match="select"):
+        SoilGP(select="best")
     with pytest.raises(ValueError, match="at least one test"):
         SoilGP().fit(np.empty((0, 2)), [], 0.2)
 

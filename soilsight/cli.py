@@ -222,6 +222,86 @@ def _capture_simulate(a) -> int:
     return 1 if r.unplaced or not r.photos else 0
 
 
+def _app_package(a) -> int:
+    from soilsight.app.package import package_from_field, save_package
+    from soilsight.field import FieldDir
+
+    fd = FieldDir(a.field)
+    if not fd.layers_json.exists():
+        print(f"{fd.root} has no map layers yet: run 'soilsight scout run {a.field}' first", file=sys.stderr)
+        return 2
+    package = package_from_field(fd)
+    out = a.out or fd.package
+    save_package(package, out)
+    p = package["protocol"]
+    print(f"field package written to {out}")
+    print(f"  {len(package['grid']['rows'])} cells of {package['grid']['cell_m']:g} m, {len(package['zones']['names'])} zones, "
+          f"{p['budget']} tests of {p['cores']} cores, first {len(package['plan']['initial'])} spots planned")
+    if package["threshold"] is None:
+        print("  no threshold set: the app will ask for one at the start of the visit (or set threshold in field.toml)")
+    return 0
+
+
+def _app_serve(a) -> int:
+    from soilsight.app.server import make_server
+
+    server = make_server(a.host, a.port, a.package)
+    where = "localhost" if a.host in ("127.0.0.1", "localhost") else a.host
+    print(f"field app at http://{where}:{a.port}/" + (f" with {a.package}" if a.package else "") + "; stop with Ctrl-C", file=sys.stderr)
+    if a.host not in ("127.0.0.1", "localhost"):
+        print("a phone opening this address gets no GPS and no offline start: both need an https address", file=sys.stderr)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def _app_report(a) -> int:
+    import json
+    import shutil
+
+    from soilsight.app.package import load_package
+    from soilsight.app.record import RecordError, read_log
+    from soilsight.app.visit import replay
+    from soilsight.field import FieldDir
+    from soilsight.report.health import WORD, write_health_report, write_results_geojson
+
+    fd = FieldDir(a.field)
+    package_path = a.package or fd.package
+    try:
+        package = load_package(package_path)
+    except FileNotFoundError:
+        print(f"no field package at {package_path}: make one with 'soilsight app package {a.field}'", file=sys.stderr)
+        return 2
+    try:
+        entries = read_log(a.log)
+    except RecordError as err:
+        print(f"the log cannot be trusted: {err}", file=sys.stderr)
+        return 1
+    started = next((e.data.get("package") for e in entries if e.type == "visit_started"), None)
+    if started and (started.get("name"), started.get("made")) != (package["name"], package["made"]):
+        print(f"this log belongs to another field package ({started.get('name')}, made {started.get('made')})", file=sys.stderr)
+        return 1
+    visit = replay(package, entries)
+    if not visit.tests:
+        print("the log holds no test results yet", file=sys.stderr)
+        return 1
+    fd.visit_log.parent.mkdir(parents=True, exist_ok=True)
+    if fd.visit_log.resolve() != type(fd.visit_log)(a.log).resolve():
+        shutil.copy(a.log, fd.visit_log)
+    checks = json.loads(fd.quality_json.read_text())["checks"] if fd.quality_json.exists() else None
+    doc = write_health_report(fd.health_html, visit, checks)
+    points = write_results_geojson(fd.results_geojson, visit)
+    print(f"log verified: {len(entries)} entries, {len(visit.tests)} tests" + ("" if visit.finished else " (visit not marked finished)"))
+    for z in doc["zones"]:
+        print(f"  zone {z['zone']}: {WORD[z['label']].lower():16s} chance unsafe {z['p_unsafe'] * 100:3.0f}%")
+    print(f"report: {fd.health_html}")
+    if points:
+        print(f"test points for QGIS: {fd.results_geojson}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="soilsight", description="SoilSight tools")
     sub = ap.add_subparsers(dest="command", required=True)
@@ -307,6 +387,22 @@ def main(argv=None) -> int:
     si.add_argument("--autopilot-trigger", action="store_true", help="have the flight controller trigger the camera")
     flight_args(si)
     si.set_defaults(func=_capture_simulate)
+
+    app = sub.add_parser("app", help="the phone app for a field visit, and its report").add_subparsers(dest="app_command", required=True)
+    pk = app.add_parser("package", help="make the file a phone needs for a visit to a scouted field")
+    pk.add_argument("field", help="the field folder (must hold map layers)")
+    pk.add_argument("-o", "--out", help="where to write it (default: FIELD/visit/field.soilsight.json)")
+    pk.set_defaults(func=_app_package)
+    sv = app.add_parser("serve", help="serve the app on this computer, to try it")
+    sv.add_argument("--package", help="a field package for the app to load by itself")
+    sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to let other devices on the network reach it")
+    sv.set_defaults(func=_app_serve)
+    rp = app.add_parser("report", help="check a visit's log and make the Field Health Report")
+    rp.add_argument("field", help="the field folder")
+    rp.add_argument("log", help="the log file exported from the app")
+    rp.add_argument("--package", help="the field package the visit used (default: FIELD/visit/field.soilsight.json)")
+    rp.set_defaults(func=_app_report)
 
     a = ap.parse_args(argv)
     return a.func(a)

@@ -31,7 +31,7 @@ class Priors:
     nugget_sd: tuple = (0.15, 0.5)    # metre-scale scatter of one core
     trend_sd: tuple = (0.2, 0.7)      # effect of the drone layers, when they matter
     trend_prob: float = 0.5           # chance that the drone layers matter at all
-    mean_sd: float = 1.0              # how far the field average may sit from the tests' average
+    mean_sd: float = 1.0              # how far the field average may sit from the threshold, in ln units
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,19 @@ class _Component:
     trend_sd: float
     alpha: np.ndarray      # K^-1 (y - mean)
     k_inv: np.ndarray      # K^-1
+
+
+def resample(weights: np.ndarray, k: int) -> tuple:
+    """Pick k items in proportion to their weights, evenly along the cumulative weight.
+
+    Returns (indices of the distinct items picked, their weights, which sum to 1). Unlike
+    keeping the k heaviest, this represents the whole spread: when many items weigh about the
+    same, "the k heaviest" would be an arbitrary and one-sided handful.
+    """
+    cum = np.cumsum(weights)
+    picks = np.searchsorted(cum, (np.arange(k) + 0.5) / k * cum[-1], side="left")
+    idx, counts = np.unique(np.minimum(picks, len(weights) - 1), return_counts=True)
+    return idx, counts / k
 
 
 def _dist(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -96,12 +109,11 @@ class Posterior:
             raise ValueError("this model was fitted with drone layers; pass feats to predict")
         return feats
 
-    def top(self, k: int) -> "Posterior":
-        """The same model cut down to its k heaviest components (faster, slightly cruder)."""
-        comps = sorted(self.components, key=lambda c: -c.weight)[:k]
-        total = sum(c.weight for c in comps)
-        comps = tuple(_Component(c.weight / total, c.signal_sd, c.length_m, c.nugget_sd, c.trend_sd,
-                                 c.alpha, c.k_inv) for c in comps)
+    def thin(self, k: int) -> "Posterior":
+        """The same model represented by at most k of its components (faster, slightly cruder)."""
+        idx, w = resample(self.weights, k)
+        comps = tuple(_Component(float(wi), c.signal_sd, c.length_m, c.nugget_sd, c.trend_sd, c.alpha, c.k_inv)
+                      for wi, c in zip(w, (self.components[i] for i in idx)))
         return Posterior(self.kernel, self.mean_var, self.obs_xy, self.obs_feats, self.y_mean, comps)
 
     def component_moments(self, xy, feats=None):
@@ -153,14 +165,24 @@ class SoilGP:
 
     kernel        'matern32' (soil-like, rough) or 'rbf' (very smooth)
     n_candidates  settings drawn from the priors
-    top_k         how many of them are kept for prediction
+    top_k         how many of them represent the fit when predicting
+    select        'resample' picks those in proportion to how well each explains the tests;
+                  'heaviest' keeps the best-fitting ones, which is overconfident with few tests
+                  (kept only for comparison)
     """
 
     def __init__(self, priors: Priors = Priors(), kernel: str = "matern32",
-                 n_candidates: int = 512, top_k: int = 24, seed: int = 0):
+                 n_candidates: int = 512, top_k: int = 24, seed: int = 0, center_on_tests: bool = False,
+                 select: str = "resample"):
         if kernel not in ("matern32", "rbf"):
             raise ValueError(f"unknown kernel {kernel!r}")
-        self.priors, self.kernel, self.top_k = priors, kernel, top_k
+        if select not in ("resample", "heaviest"):
+            raise ValueError(f"unknown select {select!r}")
+        self.priors, self.kernel, self.top_k, self.select = priors, kernel, top_k, select
+        # center_on_tests subtracts the tests' own average before fitting. It is off, and kept
+        # only for comparison: with few tests it makes similar readings look like proof that the
+        # field is uniform (one test alone then "explains" the whole field).
+        self.center_on_tests = center_on_tests
         rng = np.random.default_rng(seed)
 
         def draw(median_sd):
@@ -204,7 +226,8 @@ class SoilGP:
             obs_feats = np.asarray(obs_feats, float).reshape(n, -1)
 
         d = _dist(obs_xy, obs_xy)
-        y_mean = float(y.mean())
+        # The field's average is unknown, with prior mean 0 (the threshold) and sd priors.mean_sd.
+        y_mean = float(y.mean()) if self.center_on_tests else 0.0
         yc = y - y_mean
         k = self.signal_sd[:, None, None] ** 2 * _corr(d[None], self.length_m[:, None, None], self.kernel)
         if obs_feats is not None:
@@ -215,9 +238,12 @@ class SoilGP:
         alpha = np.linalg.solve(k, np.broadcast_to(yc, (len(k), n))[..., None])[..., 0]
         log_lik = -0.5 * (alpha * yc).sum(1) - np.log(np.diagonal(chol, axis1=1, axis2=2)).sum(1)
         w = np.exp(log_lik - log_lik.max())
-        keep = np.argsort(-w)[:self.top_k]
-        keep = keep[w[keep] > 1e-6]
-        w_keep = w[keep] / w[keep].sum()
+        if self.select == "heaviest":
+            keep = np.argsort(-w)[:self.top_k]
+            keep = keep[w[keep] > 1e-6]
+            w_keep = w[keep] / w[keep].sum()
+        else:
+            keep, w_keep = resample(w, self.top_k)
         comps = tuple(_Component(float(wi), float(self.signal_sd[i]), float(self.length_m[i]),
                                  float(self.nugget_sd[i]), float(trend_sd[i]), alpha[i], np.linalg.inv(k[i]))
                       for wi, i in zip(w_keep, keep))

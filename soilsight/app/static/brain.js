@@ -35,6 +35,21 @@
     return (1 + r) * Math.exp(-r);
   }
 
+  // Pick k items in proportion to their weights, evenly along the cumulative weight (see
+  // resample() in soilsight/model/gp.py). Returns [{index, weight}], weights summing to 1.
+  function resample(w, k) {
+    var n = w.length, cum = new Float64Array(n), s = 0, i;
+    for (i = 0; i < n; i++) { s += w[i]; cum[i] = s; }
+    var out = [], j = 0;
+    for (i = 0; i < k; i++) {
+      var target = (i + 0.5) / k * cum[n - 1];
+      while (j < n - 1 && cum[j] < target) j++;
+      if (out.length && out[out.length - 1].index === j) out[out.length - 1].count += 1;
+      else out.push({ index: j, count: 1 });
+    }
+    return out.map(function (o) { return { index: o.index, weight: o.count / k }; });
+  }
+
   // ---- small dense linear algebra (matrices are flat, row-major)
   function cholesky(a, n) {     // lower triangle L with L L^T = a; returns null if not positive definite
     var L = new Float64Array(n * n);
@@ -77,8 +92,10 @@
       if (!n) throw new Error("need at least one test");
       var d = new Float64Array(n * n), i, j, c;
       for (i = 0; i < n; i++) for (j = 0; j < n; j++) d[i * n + j] = Math.hypot(tests[i].x - tests[j].x, tests[i].y - tests[j].y);
-      var yMean = 0; for (i = 0; i < n; i++) yMean += tests[i].value; yMean /= n;
-      var yc = new Float64Array(n); for (i = 0; i < n; i++) yc[i] = tests[i].value - yMean;
+      // The field's average is unknown, with prior mean 0 (the threshold): readings are not centred on
+      // their own average, which with few tests would make similar readings look like a uniform field.
+      var yMean = 0;
+      var yc = new Float64Array(n); for (i = 0; i < n; i++) yc[i] = tests[i].value;
       var loglik = new Float64Array(C), alphas = new Array(C), chols = new Array(C), K = new Float64Array(n * n);
       for (c = 0; c < C; c++) {
         var sf2 = cand.signal_sd[c] * cand.signal_sd[c], len = cand.length_m[c], nug2 = cand.nugget_sd[c] * cand.nugget_sd[c];
@@ -93,26 +110,19 @@
         loglik[c] = -0.5 * quad - logdet; alphas[c] = alpha; chols[c] = L;
       }
       var best = -Infinity; for (c = 0; c < C; c++) if (loglik[c] > best) best = loglik[c];
-      var order = []; for (c = 0; c < C; c++) order.push(c);
-      order.sort(function (a, b) { return loglik[b] - loglik[a] || a - b; });
-      var comps = [], total = 0;
-      for (var r = 0; r < Math.min(m.top_k, C); r++) {
-        c = order[r];
-        var w = Math.exp(loglik[c] - best);
-        if (!(w > 1e-6)) continue;
-        comps.push({ weight: w, signal_sd: cand.signal_sd[c], length_m: cand.length_m[c], nugget_sd: cand.nugget_sd[c],
-                     alpha: alphas[c], kinv: cholInverse(chols[c], n) });
-        total += w;
-      }
-      comps.forEach(function (q) { q.weight /= total; });
+      var w = new Float64Array(C); for (c = 0; c < C; c++) w[c] = Math.exp(loglik[c] - best);
+      var comps = resample(w, m.top_k).map(function (pick) {
+        c = pick.index;
+        return { weight: pick.weight, signal_sd: cand.signal_sd[c], length_m: cand.length_m[c], nugget_sd: cand.nugget_sd[c],
+                 alpha: alphas[c], kinv: cholInverse(chols[c], n) };
+      });
       return { n: n, tests: tests, yMean: yMean, comps: comps };
     }
 
-    function top(post, k) {     // the k heaviest candidates, reweighted
-      var comps = post.comps.slice().sort(function (a, b) { return b.weight - a.weight; }).slice(0, k), total = 0;
-      comps.forEach(function (q) { total += q.weight; });
+    function thin(post, k) {    // the same fit represented by at most k of its candidates
+      var w = post.comps.map(function (q) { return q.weight; });
       return { n: post.n, tests: post.tests, yMean: post.yMean,
-               comps: comps.map(function (q) { return Object.assign({}, q, { weight: q.weight / total }); }) };
+               comps: resample(w, k).map(function (pick) { return Object.assign({}, post.comps[pick.index], { weight: pick.weight }); }) };
     }
 
     function distToTests(post, cells) {   // (cells, n)
@@ -186,7 +196,7 @@
       var pr = pkg.protocol, n = post.n;
       if (n >= pr.budget) return null;
       var cs = pkg.plan.cand, ev = pkg.plan.eval, Cn = cs.length, M = ev.length, zq = m.quadrature.z, wq = m.quadrature.w;
-      var p6 = top(post, m.acq_components), dCandObs = distToTests(p6, cs), dCellObs = distToTests(p6, ev);
+      var p6 = thin(post, m.acq_components), dCandObs = distToTests(p6, cs), dCellObs = distToTests(p6, ev);
       var dCandCell = new Float64Array(Cn * M), c, z, j, k;
       for (c = 0; c < Cn; c++) for (z = 0; z < M; z++) dCandCell[c * M + z] = Math.hypot(X[cs[c]] - X[ev[z]], Y[cs[c]] - Y[ev[z]]);
       var gains = new Float64Array(Cn), now = 0;
