@@ -68,10 +68,27 @@ class Brain:
         self._obs_xy, self._y, self._noise, self._cores, self._obs_feats = [], [], [], [], []
         self._post = None
 
+    @classmethod
+    def from_package(cls, package: dict) -> "Brain":
+        """The Brain for a field package (see soilsight.app.package), using the package's own
+        candidate settings and spot lists so it agrees with the phone app to rounding."""
+        from soilsight.app.package import cells_xy
+        p, m = package["protocol"], package["model"]
+        brain = cls(cells_xy(package), protocol=Protocol(budget=p["budget"], cores=p["cores"], kit_sd=p["kit_sd"],
+                                                         init_frac=p["init_frac"], min_sep_m=p["min_sep_m"]),
+                    kernel=m["kernel"])
+        brain._gp = SoilGP.from_candidates(m["candidates"], m["kernel"], m["top_k"], m["mean_sd"])
+        brain._cand = np.asarray(package["plan"]["cand"], int)
+        brain._eval = np.asarray(package["plan"]["eval"], int)
+        brain._initial = np.asarray(package["plan"]["initial"], int)
+        return brain
+
     # ---- where to test
 
     def initial_spots(self) -> np.ndarray:
         """The evenly spread first tests, as (n, 2) positions."""
+        if getattr(self, "_initial", None) is not None:
+            return self.xy[self._initial]
         n = max(int(round(self.protocol.init_frac * self.protocol.budget)), 2)
         return self.xy[spread_spots(self.xy, min(n, self.protocol.budget), self._rng, self.fixed_xy)]
 

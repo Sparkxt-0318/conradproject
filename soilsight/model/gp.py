@@ -171,6 +171,22 @@ class SoilGP:
         self.nugget_sd = draw(priors.nugget_sd)
         self.trend_sd = np.where(rng.random(n_candidates) < priors.trend_prob, draw(priors.trend_sd), 0.0)
 
+    def candidates(self) -> dict:
+        """The candidate settings as plain lists, for handing to another implementation."""
+        return dict(signal_sd=self.signal_sd.tolist(), length_m=self.length_m.tolist(),
+                    nugget_sd=self.nugget_sd.tolist(), trend_sd=self.trend_sd.tolist())
+
+    @classmethod
+    def from_candidates(cls, candidates: dict, kernel: str = "matern32", top_k: int = 24, mean_sd: float = 1.0) -> "SoilGP":
+        """A model using exactly these candidate settings instead of drawing its own. Two
+        programs given the same candidates produce the same map."""
+        gp = cls(Priors(mean_sd=mean_sd), kernel, n_candidates=1, top_k=top_k)
+        gp.signal_sd = np.asarray(candidates["signal_sd"], float)
+        gp.length_m = np.asarray(candidates["length_m"], float)
+        gp.nugget_sd = np.asarray(candidates["nugget_sd"], float)
+        gp.trend_sd = np.asarray(candidates.get("trend_sd", np.zeros(len(gp.signal_sd))), float)
+        return gp
+
     def fit(self, obs_xy, y, noise_sd, obs_feats=None, cores=1) -> Posterior:
         """obs_xy (n, 2) metres; y (n,) ln(reading / threshold); noise_sd one number or one per
         test (a lab result has a smaller one than a kit result); obs_feats (n, p) standardised
