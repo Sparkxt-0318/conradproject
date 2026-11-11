@@ -214,6 +214,32 @@ def test_run_end_to_end(flown_field):
     assert any("report:" in line for line in logs)
 
 
+def test_overlap_is_judged_after_stitching_when_height_was_unknown(field_dir, stitched_field):
+    field_dir.photos.mkdir(parents=True)
+    for name, lat, lon, when in lawnmower():
+        write_photo(field_dir.photos / name, lat, lon, 80, when, exposure=1 / 1000)      # no height recorded
+    field_dir.config_path.write_text('sensor = "pi_gs_6mm"\n')
+    shutil.copy(stitched_field.annotations, field_dir.annotations)
+    before = {c.name: c for c in check_flight(field_dir)[2]}
+    assert before["Overlap, blur and smear"].value == "not checked"
+    result = run(field_dir, log=lambda m: None, node=FakeNode(stitched_field.odm))
+    after = {c.name: c for c in result.checks}
+    assert "Overlap, blur and smear" not in after
+    assert after["Flying height"].value == "35 m"            # 2.0 cm pixels with this camera
+    assert after["Forward overlap"].status == "ok" and after["Forward overlap"].value == "77%"
+    assert [c.stage for c in result.checks if c.name in ("Flying height", "Side overlap")] == ["flight", "flight"]
+
+
+def test_low_overlap_found_after_stitching_is_a_warning_not_a_failure(field_dir, stitched_field):
+    field_dir.photos.mkdir(parents=True)
+    for name, lat, lon, when in lawnmower(spacing=14.0, per_line=8):
+        write_photo(field_dir.photos / name, lat, lon, 80, when)
+    field_dir.config_path.write_text('sensor = "pi_gs_6mm"\n')
+    result = run(field_dir, log=lambda m: None, node=FakeNode(stitched_field.odm))
+    forward = next(c for c in result.checks if c.name == "Forward overlap")
+    assert forward.status == "warn" and "did stitch" in forward.detail and result.overall == "warn"
+
+
 def test_run_writes_positions_from_the_capture_computer(flown_field):
     fd, node = flown_field
     rows = ["file,lat,lon,alt_m,agl_m,time_utc"] + [f"{n},{lat},{lon},80,40,{t.isoformat()}Z" for n, lat, lon, t in lawnmower()]
@@ -240,6 +266,27 @@ def test_run_with_outputs_already_stitched(stitched_field, tmp_path):
     result = run(fd, skip_stitch=True, log=lambda m: None)
     assert result.stack is not None and result.overall == "warn"
     assert next(c for c in result.checks if c.name == "Photos").value == "not supplied"
+
+
+def test_sample_field_from_real_stitched_outputs(tmp_path):
+    """data/sample_field holds what OpenDroneMap really produced (reduced in resolution)."""
+    sample = Path(__file__).resolve().parents[1] / "data" / "sample_field"
+    fd = FieldDir(tmp_path / "sample")
+    shutil.copytree(sample, fd.root)
+    result = run(fd, skip_stitch=True, log=lambda m: None)
+    by = {c.name: c for c in result.checks}
+    assert result.overall == "warn" and len(result.stack.names) == 11
+    assert by["Photos used"].value == "18 of 18" and by["Alignment error"].value == "0.80 px"
+    assert by["Ground pixel size, measured"].value == "1.6 cm" and by["Map projection"].value == "EPSG:32615"
+    assert by["Field area"].value == "0.35 ha" and by["Field covered by the orthophoto"].status == "ok"
+    assert "trees or buildings" in by["Terrain relief"].detail
+    stack = result.stack
+    assert np.isfinite(stack.data[:, stack.grid.mask]).all()
+    assert 80 < np.nanmax(stack.layer("dist_inlet")) < 90                  # the drawn boundary is 70 x 50 m
+    # Grass is greener than the paved paths, and the paths are brighter than the grass.
+    green, bright = stack.layer("excess_green")[stack.grid.mask], stack.layer("brightness")[stack.grid.mask]
+    assert np.corrcoef(green, bright)[0, 1] < -0.5
+    assert fd.quality_html.read_text().count("data:image/png;base64,") == 12
 
 
 def test_run_needs_photos_or_outputs(field_dir):

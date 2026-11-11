@@ -13,8 +13,8 @@ from soilsight.field import FieldDir
 from soilsight.ingest.sensors import SensorProfile
 from soilsight.ingest import collect_shots, flight_checks, flight_geometry, get_profile, profile_from_exif, write_geo_txt
 from soilsight.layers import build_layers, save_layers
-from soilsight.photogrammetry.odm import odm_options, stitch, stitching_checks
-from soilsight.report.checks import FAIL, INFO, Check
+from soilsight.photogrammetry.odm import measured_gsd_m, odm_options, stitch, stitching_checks
+from soilsight.report.checks import FAIL, INFO, WARN, Check
 from soilsight.report.quality import write_quality
 
 
@@ -96,6 +96,21 @@ def run(fd: FieldDir, node_url: str = "http://localhost:3000", skip_stitch: bool
     if any(c.status == FAIL for c in stitched):
         stopped = "The stitched outputs are missing or unusable, so no layers were made."
         return finish()
+
+    # Photos that do not record their height leave overlap unchecked. The stitched pixel size
+    # gives the height after the fact, so the flight can still be judged.
+    gsd = measured_gsd_m(fd)
+    unchecked = [c for c in checks if c.name == "Overlap, blur and smear" and "height" in c.detail]
+    if unchecked and gsd and profile is not None:
+        height = gsd / profile.gsd_m(1.0)
+        redo = [c for c in flight_checks(shots, [], profile, height)
+                if c.name not in ("Photos with a position", "Photo count", "Flight lines")]
+        # Judged after the fact, a failed check is a warning: the photos did stitch.
+        redo = [Check(c.stage, c.name, WARN, c.value, c.detail + "; below the limit, but the photos did stitch")
+                if c.status == FAIL else c for c in redo]
+        at = checks.index(unchecked[0])
+        checks[at:at + 1] = [Check("flight", "Flying height", INFO, f"{height:.0f} m",
+                                   "worked out from the stitched pixel size, because the photos do not record it")] + redo
 
     log("building layers")
     stack, layer_checks = build_layers(fd)

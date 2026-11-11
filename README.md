@@ -98,6 +98,12 @@ If the orthophoto and surface model already exist (for example exported from Web
 soilsight scout run my_field --skip-stitch
 ```
 
+To try this without photos or Docker, the repository includes real stitched outputs for a small sample field:
+
+```bash
+soilsight scout run data/sample_field --skip-stitch
+```
+
 The results land in the same folder:
 
 | File | What it is |
@@ -177,6 +183,7 @@ zones = brain.zones(zone_ids)               # green / yellow / red per managemen
 | `soilsight/sim/metrics.py` | How a predicted map is scored against the truth |
 | `soilsight/sim/benchmark.py` | The four experiments, the gate, and the check against reference results |
 | `soilsight/sim/expected/` | Reference results (the numbers quoted in the plan) |
+| `data/sample_field/` | Real stitched outputs at reduced resolution, for trying the pipeline and as a regression test |
 | `tests/` | Unit tests and a fast regression test; scout tests use small synthetic photos and rasters |
 
 The benchmark's fields are made up. It compares strategies under controlled conditions; it does not show how well any of them works on real soil.

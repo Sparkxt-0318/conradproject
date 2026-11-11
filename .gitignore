@@ -4,3 +4,6 @@ __pycache__/
 build/
 dist/
 .venv/
+data/sample_field/layers/
+data/sample_field/report/
+data/sample_field/work/

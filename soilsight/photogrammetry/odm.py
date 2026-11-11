@@ -153,6 +153,14 @@ def stitching_checks(field: FieldDir, n_photos: int | None = None) -> list:
     return checks
 
 
+def measured_gsd_m(field: FieldDir) -> float | None:
+    """Ground pixel size the stitcher worked out from the photos, in metres, if it reported one."""
+    if not field.odm_stats.exists():
+        return None
+    value = _get(json.loads(field.odm_stats.read_text()), "odm_processing_statistics", "average_gsd")
+    return float(value) / 100 if value else None
+
+
 def used_ground_control(field: FieldDir) -> bool:
     """Whether the stitched outputs were tied to surveyed ground control points."""
     if not field.odm_stats.exists():

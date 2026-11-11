@@ -1,6 +1,6 @@
 # SoilSight software and AI plan
 
-Status: approved. Phase 1 (the benchmark) and phase 2 (the Brain) are built; phases 3 to 7 are not started. Phase 2 met two of its three gate items; see "Phase 2 result".
+Status: approved. Phases 1 (benchmark), 2 (Brain) and 3 (Scout processing) are built; phases 4 to 7 are not started. Phase 2 met two of its three gate items; phase 3 met its gate on public sample photos, not yet on bare soil or the project's own camera. See "Phase 2 result" and "Phase 3 result".
 
 ## Context
 
@@ -86,12 +86,16 @@ soilsight/
   sampling/       initial spread, next spot by expected drop in misclassified area (which is
                   also the "value of one more test")  [built]
   brain.py        one object per field visit tying model and sampling together  [built]
-  capture/        Pi-side: picamera2 trigger loop, MAVLink time sync, sidecar CSV
-  ingest/         sensor profiles (YAML), geotag from live MAVLink or flight log,
-                  EXIF/XMP, ODM geo.txt and gcp_list.txt
-  photogrammetry/ NodeODM via pyodm → orthophoto + surface model + quality report
-  layers/         colour, terrain and distance layers on one grid, each with a quality flag
-  report/         Field Health Report (HTML → PDF)
+  capture/        Pi-side: picamera2 trigger loop, MAVLink time sync, capture.csv
+  ingest/         sensor profiles (TOML), photo positions from capture.csv or EXIF,
+                  ODM geo.txt, flight checks  [built; positions from a flight log come
+                  with phase 4]
+  photogrammetry/ NodeODM via pyodm → orthophoto + surface model, with checks  [built]
+  layers/         colour, terrain and distance layers on one grid, each with a quality
+                  flag  [built]
+  report/         quality report (HTML + JSON)  [built]; Field Health Report in phase 5
+  scout.py        the photos-to-layers pipeline  [built]
+  field.py        where everything lives in a field folder  [built]
   app/            phone web app (FastAPI + offline map): next spot, navigate, enter result
   cli.py
 tests/  data/sample_field/  docs/
@@ -103,7 +107,7 @@ Each field is one folder: GeoTIFF layers, a GeoPackage of spots and results, and
 
 1. **Benchmark first (done).** The stress test lives in `sim/` with tests. Gate met: the ported code matches the original script run for run, and the stored reference results hold the table above.
 2. **Brain (done, gate partly met).** `model/` and `sampling/`. Gate: beats both the PDF loop and the even-spread baseline on the benchmark; 90% ranges cover 85–95%. It beats the PDF loop and its ranges are honest on average, but it does not beat even spread on accuracy. See "Phase 2 result".
-3. **Scout processing.** `ingest/`, `photogrammetry/`, `layers/` on a public drone dataset. Gate: one command turns a photo folder into layers and a quality report.
+3. **Scout processing (done, gate met on sample photos).** `ingest/`, `photogrammetry/`, `layers/` on a public drone dataset. Gate: one command turns a photo folder into layers and a quality report. See "Phase 3 result".
 4. **Capture.** `capture/` against ArduPilot's simulator with a fake camera, then the real camera on a pole or cart, then the drone. Gate: every photo geotagged, overlap ≥80%, smear under 1 pixel.
 5. **Field app and report.** Gate: a full loop run on a phone with no signal.
 6. **Truth field.** One field tested densely (about 50 kit tests, 10 lab splits). Replay every method on it offline. The simulation does not support a "same accuracy with X% fewer tests" claim, so the number to measure here is the one it does support: how much less unsafe area is missed, and how often a green zone is really unsafe.
@@ -139,11 +143,57 @@ What this means:
 - **Drone layers stay off.** On the tuning fields they added nothing, even where they explained 60% of the cadmium pattern. With 15 tests the model's weight on "layers matter" averaged 0.42 for junk layers and 0.67 for real ones, against a starting value of 0.50. Whether layers help has to be learned across fields (phase 7).
 - **The soil-to-grain formula has no coefficients built in.** None has been checked against this kit's extraction; they must come from a paper using the same extraction or from paired soil and grain samples.
 
+## Phase 3 result
+
+One command, `soilsight scout run <field>`, takes a folder of photos through OpenDroneMap stitching to the map layers and a quality report. It was run for real, not only against test doubles:
+
+| Run | Photos | Stitching | Outcome |
+|---|---|---|---|
+| Brighton Beach sample set (DJI Phantom 3, 40 m) | 18 | 6 min | 18 of 18 photos used, alignment error 0.80 px, 2 cm orthophoto; with a boundary, inlet, outlet and ditch drawn on it, all 11 layers |
+| Aukerman sample set (Sony compact on a fixed-wing, about 97 m) | 77 | 44 min | 76 of 77 photos used, alignment error 1.12 px, 8.4 ha mapped, under 5 GB of memory |
+| Brighton again, positions from a `capture.csv` and a rolling-shutter profile, low-quality settings | 18 | 2 min | The stitcher's log shows it read our position file and ran rolling-shutter correction with the profile's readout value |
+
+Timings are from a 4-core, 16 GB machine. A reduced copy of the first run's outputs is in `data/sample_field/` as a regression test.
+
+What the software does:
+
+- **Flight check before stitching** (`soilsight scout check`): photo count, positions, overlap along and across flight lines, motion blur and rolling-shutter smear, from photo positions and the camera profile. It takes seconds, so a bad flight can be re-flown the same day.
+- **Stitching:** options are chosen from the camera profile; outputs are checked against OpenDroneMap's own statistics (photos used, alignment error, ground control points).
+- **Eleven layers on a 1 m grid:** five soil-colour indices, three terrain layers, three distance layers. Each carries a note on how far to trust it.
+- **Quality report:** one HTML page and a JSON file listing every check.
+
+On synthetic rasters with known answers the layers recover the grey-card gains to within 2%, the 0.5% field tilt, and the position of a 15 cm hollow to within 2 m.
+
+Problems the real runs exposed, all fixed and tested:
+
+- The slope layer had a false cliff along the field edge.
+- Ground speed was dragged down by skipped photos and turns (3.4 m/s reported for a 10 m/s flight).
+- The terrain warning's wording was wrong for a scene with metres of relief.
+- A camera whose photos lack a 35 mm-equivalent focal length got no profile; `field.toml` can now describe any camera.
+- Photos that do not record flying height left overlap unchecked; the height is now worked out from the stitched pixel size.
+- Low overlap found that way failed the whole report even though the photos had stitched; it is now a warning.
+
+A test also caught that a partial stitching run could leave old outputs mixed with new ones; outputs are now replaced as a set.
+
+Differences from the plan as first written:
+
+- Sensor profiles and field settings are TOML, not YAML (no extra dependency).
+- Photo positions go to OpenDroneMap in its `geo.txt`; photos are never rewritten, so no EXIF or XMP writing was needed.
+- Reading positions from a flight log is deferred to phase 4, when the simulator can produce logs to test against.
+- Low spots use "how far below the surroundings within 10 m", not a water-flow model, because flow models amplify centimetre noise on a nearly flat field.
+
+Not shown by these runs:
+
+- **Bare soil.** Both sample scenes are parks. The colour indices have not seen real soil.
+- **Ground control points.** That path was tested against a stand-in server only.
+- **Whether rolling-shutter correction helps.** The stitcher accepted the option, but its effect depends on the readout time, and the Raspberry Pi values in the profiles were computed from the driver, not measured.
+- **Terrain on a paddy.** Without ground control points the report warns that hollows and rises of a few centimetres may be stitching artefacts; this warning will be the normal case until control points are used.
+
 ## Verification
 
 - `pytest`: GP checked against closed-form cases; design and geotag unit tests.
 - `soilsight sim benchmark <experiment> --check`: regenerates the stress-test tables and fails if they change. `soilsight sim benchmark brain` also prints the phase 2 gate.
-- `soilsight pipeline run data/sample_field`: photos → layers → spots → report, end to end.
+- `soilsight scout run data/sample_field --skip-stitch`: real stitched outputs → layers → quality report. With photos and a NodeODM server, `soilsight scout run <field>` does the whole chain.
 - Simulator flight: trigger messages in, geotagged files out, timing error under 50 ms.
 - Camera bench test: measured readout, focus stability under vibration, capture rate on the chosen Pi.
 
@@ -151,7 +201,7 @@ What this means:
 
 1. **Output framing:** zone answers plus a three-class map where yellow means "not sure, test more". The "90% of the field at 90% confidence" claim is dropped.
 2. **Sensor:** Raspberry Pi Global Shutter Camera as primary, plus one RTK receiver.
-3. **Tests per field:** 15 mixed-core tests for zone answers; one truth field at about 50. (Agreed when mixed cores looked worth about 10 extra tests; the corrected figure is smaller, so this is worth a second look.)
+3. **Tests per field:** 15 mixed-core tests for zone answers; one truth field at about 50. Three cores per test was confirmed after the corrected figure (accuracy unchanged, 2 to 8 points less unsafe area missed).
 4. **App:** phone web app first, WeChat mini-program later.
 5. **Starter code:** start fresh.
 
