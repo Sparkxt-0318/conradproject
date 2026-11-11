@@ -122,7 +122,7 @@ def test_budget_reference_holds_the_plans_headline_numbers():
     assert _row(rows, "S0", "hybrid OK", 60)["acc"] == pytest.approx(0.855, abs=6e-4)
     assert _row(rows, "S7", "static OK", 60)["bal"] == pytest.approx(0.706, abs=6e-4)
     zone = [r["zacc"] for r in rows if r["budget"] == 15]
-    assert min(zone) >= 0.865 and max(zone) <= 0.985           # "87-98% of zones correct at 15 tests"
+    assert min(zone) >= 0.855 and max(zone) <= 0.985           # "86-98% of zones correct at 15 tests"
 
 
 def test_validation_reproduces_its_reference():

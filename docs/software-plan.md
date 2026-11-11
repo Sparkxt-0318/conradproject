@@ -35,7 +35,7 @@ soilsight sim benchmark validation --check
 | The "90% of field at 90% confidence" target is out of reach | In the base case only 30–50% of the field is confidently classed at 15 tests, and 20–30% is still unsure at 60 tests |
 | Drone layers fed through principal components gave no reliable gain | Even when layers explained 60% of cadmium variation: 78.7% vs 80.4% without them |
 | Picking spots near the safe/unsafe boundary does help when hotspots are rare | Balanced accuracy 0.66 vs 0.57 at 15 tests; 0.79 vs 0.71 at 60 |
-| Zone-level answers work at 15 tests | Six ~0.5 ha zones classed correctly 87–98% of the time |
+| Zone-level answers work at 15 tests | Six ~0.5 ha zones classed correctly 86–98% of the time |
 | Mixing 3 cores into each test is worth about 10 extra tests | 78.6% vs 75.8% correct at 15 tests; missed unsafe area 43% vs 51% |
 | A real cell-level map needs 40–60 tests | About 85% correct at 60 |
 | The "80% of results within 25% of lab" target fails more often than not at 22% kit error | True share within 25% is 75%; chance of passing with 20 split samples is 41%. Kit error must be ≤18% |
