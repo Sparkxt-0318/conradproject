@@ -103,6 +103,9 @@ def test_distance_trigger():
     assert not trig.due(near, 1) and trig.due(far, 1)
     with pytest.raises(ValueError):
         DistanceTrigger(0)
+    on_the_ground = State(28.0, 113.0, 60, -0.2, 0)                # height reads slightly negative on the ground
+    assert DistanceTrigger(2.0, min_agl_m=0).due(on_the_ground, 0) and IntervalTrigger(1.0, min_agl_m=0).due(on_the_ground, 0)
+    assert not IntervalTrigger(1.0, min_agl_m=10).due(on_the_ground, 0)
 
 
 def test_interval_trigger():
@@ -269,10 +272,14 @@ def test_autopilot_trigger_shoots_on_command(tmp_path):
 def test_flight_plan_for_the_global_shutter_camera():
     p = flight_plan(get_profile("pi_gs_6mm"), 40)
     assert p.gsd_m * 100 == pytest.approx(2.3, abs=0.01)
-    assert p.photo_spacing_m == pytest.approx(5.0, abs=0.05) and p.line_spacing_m == pytest.approx(10.05, abs=0.05)
-    assert p.interval_s == pytest.approx(1.0, abs=0.01) and p.smear_px == 0 and p.blur_px < 0.3
-    assert p.limited_by == "photo rate" and p.max_speed_ms == pytest.approx(5.0, abs=0.05)
-    assert p.area_ha_per_min() == pytest.approx(0.30, abs=0.01)
+    # 25 m along the line, 80% overlap, planned 3% closer: a photo every 4.85 m
+    assert p.photo_spacing_m == pytest.approx(4.85, abs=0.01) and p.line_spacing_m == pytest.approx(10.05, abs=0.05)
+    assert p.smear_px == 0 and p.blur_px < 0.3
+    # one photo a second is the assumed camera limit, so that sets the speed
+    assert p.limited_by == "photo rate" and p.max_speed_ms == p.speed_ms == pytest.approx(4.85, abs=0.01)
+    assert p.interval_s == pytest.approx(1.0, abs=0.01) and p.area_ha_per_min() == pytest.approx(0.29, abs=0.01)
+    assert flight_plan(get_profile("pi_gs_6mm"), 40, margin=0).photo_spacing_m == pytest.approx(5.0, abs=0.01)
+    assert flight_plan(get_profile("pi_gs_6mm"), 40, speed_ms=3.0).speed_ms == 3.0
 
 
 def test_rolling_shutter_limits_speed():
@@ -280,7 +287,8 @@ def test_rolling_shutter_limits_speed():
     binned = flight_plan(get_profile("pi_cm3_binned"), 40)
     assert full.limited_by == binned.limited_by == "rolling-shutter smear"
     assert full.max_speed_ms == pytest.approx(0.17, abs=0.01) and binned.max_speed_ms == pytest.approx(1.39, abs=0.02)
-    assert full.smear_px == pytest.approx(29, abs=1)
+    assert binned.speed_ms == binned.max_speed_ms and binned.smear_px == pytest.approx(1.0)     # default: as fast as allowed
+    assert flight_plan(get_profile("pi_cm3_full"), 40, speed_ms=5.0).smear_px == pytest.approx(29, abs=1)
     with pytest.raises(ValueError, match="overlaps"):
         flight_plan(get_profile("pi_gs_6mm"), 40, forward=1.2)
 
@@ -314,11 +322,11 @@ def test_survey_mission_and_waypoint_file(stitched_field, tmp_path):
     items = survey_mission(boundary, plan)
     cmds = [it["command"] for it in items]
     assert cmds[:4] == [16, 22, 178, 16] and cmds[-1] == 20 and 206 not in cmds
-    assert items[1]["alt"] == 40 and items[2]["params"][1] == 5.0
+    assert items[1]["alt"] == 40 and items[2]["params"][1] == pytest.approx(4.85, abs=0.01)
     assert cmds.count(16) == 2 * 4 + 1                              # home, then both ends of 4 lines over a 60 x 40 m field
     with_trigger = survey_mission(boundary, plan, autopilot_trigger=True)
     trig = [it for it in with_trigger if it["command"] == 206]
-    assert [round(t["params"][0], 1) for t in trig] == [5.0, 0.0]   # on before the lines, off after
+    assert [round(t["params"][0], 2) for t in trig] == [4.85, 0.0]  # on before the lines, off after
     out = tmp_path / "survey.waypoints"
     write_waypoints(items, out)
     rows = out.read_text().splitlines()
@@ -338,15 +346,17 @@ def test_cli_plan_prints_settings_and_writes_a_mission(stitched_field, tmp_path,
     assert main(["capture", "plan", "--sensor", "pi_gs_6mm", "--boundary", str(stitched_field.annotations),
                  "--mission", str(out)]) == 0
     text = capsys.readouterr().out
-    assert "photo every       5.0 m" in text and "none (global shutter)" in text and "4 flight lines" in text
+    assert "photo every       4.9 m" in text and "none (global shutter)" in text and "4 flight lines" in text
     assert out.read_text().startswith("QGC WPL 110")
 
 
 def test_cli_plan_refuses_a_speed_the_camera_cannot_take(capsys):
     from soilsight.cli import main
-    assert main(["capture", "plan", "--sensor", "pi_cm3_binned"]) == 1
+    assert main(["capture", "plan", "--sensor", "pi_cm3_binned", "--speed", "5"]) == 1
     assert "too fast for this camera" in capsys.readouterr().out
     assert main(["capture", "plan", "--sensor", "pi_cm3_binned", "--speed", "1.3"]) == 0
+    assert main(["capture", "plan", "--sensor", "pi_cm3_binned"]) == 0             # default: the fastest allowed
+    assert "1.00 s at" not in capsys.readouterr().out.split("pi_cm3_binned")[-1].split("photo every")[1].splitlines()[0]
     with pytest.raises(SystemExit, match="name the camera"):
         main(["capture", "plan"])
     assert main(["capture", "plan", "--sensor", "pi_gs_6mm", "--mission", "x.waypoints"]) == 2
@@ -372,3 +382,61 @@ def test_run_capture_loop(tmp_path):
                         sleep=lambda dt: setattr(clock, "now", clock.now + dt))
     assert taken == len(session.shots) == 14 and lines[0] == "photo 1: img_000001.jpg"
     assert len(read_sidecar(session.field.sidecar)) == 14          # closed and written out
+
+
+# ---- bench test
+
+class _BenchCamera:
+    """Takes a fixed time per photo; every fourth photo is blurred."""
+
+    def __init__(self, clock, seconds_per_photo=0.6):
+        self.clock, self.dt, self.n = clock, seconds_per_photo, 0
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def capture(self, path):
+        from PIL import Image, ImageFilter
+        from soilsight.capture import Exposure
+        rng = np.random.default_rng(0)
+        im = Image.fromarray(rng.integers(0, 255, (120, 160), dtype=np.uint8))
+        self.n += 1
+        if self.n % 4 == 0:
+            im = im.filter(ImageFilter.GaussianBlur(3))
+        im.convert("RGB").save(path, "JPEG", quality=95)
+        self.clock.now += self.dt
+        return Exposure(self.clock.now, 0.001)
+
+
+def test_bench_measures_photo_rate_and_finds_soft_photos(tmp_path):
+    from soilsight.capture.bench import bench_camera
+    clock = SimClock()
+    r = bench_camera(_BenchCamera(clock), tmp_path / "bench", count=12, clock=clock, sleep=lambda s: None)
+    assert r.photos == 12 and r.interval_median_s == pytest.approx(0.6) and r.interval_worst_s == pytest.approx(0.6)
+    assert r.sustainable_interval_s == pytest.approx(0.66) and r.late == 0
+    assert r.soft == ("bench_0004.jpg", "bench_0008.jpg", "bench_0012.jpg")
+    assert min(r.sharpness) < 0.5 * max(r.sharpness)
+
+
+def test_bench_counts_photos_that_come_late(tmp_path):
+    from soilsight.capture.bench import bench_camera
+    clock = SimClock()
+
+    def sleep(s):
+        clock.now += s
+
+    slow = bench_camera(_BenchCamera(clock, 0.9), tmp_path / "slow", count=8, interval_s=0.5, clock=clock, sleep=sleep)
+    assert slow.late == 7 and slow.interval_median_s == pytest.approx(0.9)       # cannot keep up with 0.5 s
+    ok = bench_camera(_BenchCamera(clock, 0.3), tmp_path / "ok", count=8, interval_s=1.0, clock=clock, sleep=sleep)
+    assert ok.late == 0 and ok.interval_median_s == pytest.approx(1.0)
+
+
+def test_cli_bench_with_the_stand_in_camera(tmp_path, capsys):
+    from soilsight.cli import main
+    code = main(["capture", "bench", str(tmp_path / "b"), "--camera", "fake", "--sensor", "pi_gs_6mm", "--count", "5"])
+    out = capsys.readouterr().out
+    assert code == 0 and "photos                 5" in out and "safe photo interval" in out and "soft photos            0" in out
+    assert len(list((tmp_path / "b").iterdir())) == 5

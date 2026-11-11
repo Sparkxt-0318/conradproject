@@ -38,23 +38,29 @@ class FlightPlan:
 
 
 def flight_plan(profile: SensorProfile, height_m: float, forward: float = 0.8, side: float = 0.7,
-                speed_ms: float = 5.0, exposure_s: float = 1 / 1000, min_interval_s: float = 1.0,
-                max_px: float = 1.0) -> FlightPlan:
+                speed_ms: float | None = None, exposure_s: float = 1 / 1000, min_interval_s: float = 1.0,
+                max_px: float = 1.0, margin: float = 0.03, top_speed_ms: float = 5.0) -> FlightPlan:
     """Settings for this camera at this height. The camera's long side lies across the flight line.
 
     forward, side    overlap between consecutive photos and between flight lines
-    min_interval_s   the shortest time the camera needs between photos
+    speed_ms         ground speed; by default the fastest the camera allows, up to top_speed_ms
+    min_interval_s   the shortest time the camera needs between photos (an assumption until
+                     measured on the real camera)
     max_px           the most blur or smear to accept, in pixels
+    margin           photos are planned this much closer together than the overlap strictly
+                     needs, because a trigger always fires a little after its planned point
     """
     if not (0 < forward < 1 and 0 < side < 1):
         raise ValueError("overlaps must be between 0 and 1")
     gsd = profile.gsd_m(height_m)
     across, along = profile.footprint_m(height_m)
-    spacing, lines = along * (1 - forward), across * (1 - side)
+    spacing, lines = along * (1 - forward) * (1 - margin), across * (1 - side)
     limits = {"motion blur": max_px * gsd / exposure_s, "photo rate": spacing / min_interval_s}
     if profile.shutter == "rolling" and profile.readout_ms:
         limits["rolling-shutter smear"] = max_px * gsd / (profile.readout_ms / 1000.0)
     limited_by = min(limits, key=limits.get)
+    if speed_ms is None:
+        speed_ms = min(top_speed_ms, limits[limited_by])
     smear = profile.smear_px(speed_ms, height_m)
     return FlightPlan(height_m, gsd, (across, along), spacing, lines, speed_ms, spacing / speed_ms,
                       profile.blur_px(speed_ms, height_m, exposure_s), smear, limits[limited_by], limited_by)

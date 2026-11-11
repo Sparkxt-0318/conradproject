@@ -5,7 +5,8 @@ from soilsight.capture.telemetry import State, distance_m
 
 
 class DistanceTrigger:
-    """A photo every spacing_m of ground travelled, once the drone is above min_agl_m.
+    """A photo every spacing_m of ground travelled, once the drone is above min_agl_m
+    (0 or less: at any height, for tests on the ground).
 
     Spacing by distance keeps the overlap right whatever the speed or wind.
     """
@@ -17,7 +18,7 @@ class DistanceTrigger:
         self._last = None
 
     def due(self, state: State, now: float) -> bool:
-        if state.agl_m < self.min_agl_m:
+        if self.min_agl_m > 0 and state.agl_m < self.min_agl_m:
             return False
         return self._last is None or distance_m(self._last, state) >= self.spacing_m
 
@@ -38,7 +39,8 @@ class IntervalTrigger:
         self._last = None
 
     def due(self, state: State, now: float) -> bool:
-        return state.agl_m >= self.min_agl_m and (self._last is None or now - self._last >= self.interval_s)
+        high_enough = self.min_agl_m <= 0 or state.agl_m >= self.min_agl_m
+        return high_enough and (self._last is None or now - self._last >= self.interval_s)
 
     def fired(self, state: State, now: float) -> None:
         self._last = now

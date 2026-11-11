@@ -7,7 +7,7 @@ name = "soilsight"
 version = "0.1.0"
 description = "Software for SoilSight: drone-guided soil checks for rice fields"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26", "scipy>=1.11", "rasterio>=1.4", "pillow>=10", "pyodm>=1.5"]
+dependencies = ["numpy>=1.26", "scipy>=1.11", "rasterio>=1.4", "pillow>=10", "pyodm>=1.5", "pymavlink>=2.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

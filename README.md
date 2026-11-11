@@ -6,15 +6,16 @@ The design and the reasoning behind it are in [docs/software-plan.md](docs/softw
 
 ## Status
 
-Phases 1 to 3 of the plan are built:
+Phases 1 to 4 of the plan are built:
 
 - **Benchmark:** synthetic fields that every sampling strategy is judged on.
 - **Brain:** the map model and the loop that picks where to test next.
 - **Scout processing:** one command turns a folder of drone photos into map layers and a quality report.
+- **Capture:** the software for the Raspberry Pi on the drone, which takes the photos and records where each was taken.
 
 On the benchmark the Brain beats the original plan's loop and gives honest uncertainty, but it is level with a plain even spread of tests on accuracy; its gain is less unsafe ground called safe. Details are in the plan under "Phase 2 result".
 
-Scout processing has run on public sample photo sets with real stitching. Nothing here has touched the project's own camera or a real rice field yet.
+Scout processing has run on public sample photo sets with real stitching. Capture has flown surveys in ArduPilot's simulator with a stand-in camera. Nothing here has touched the project's own camera, a real flight controller or a real rice field yet; [docs/bench-test.md](docs/bench-test.md) is the procedure for that.
 
 ## Install
 
@@ -148,6 +149,34 @@ from soilsight.layers import load_layers
 xy, feats, cells = load_layers(FieldDir("my_field")).brain_inputs()
 ```
 
+## Capturing photos on the drone
+
+Flight settings for a camera, and a survey mission for a field boundary:
+
+```bash
+soilsight capture plan --sensor pi_gs_6mm --height 40 --boundary my_field/annotations.geojson --mission my_field/survey.waypoints
+```
+
+On the Raspberry Pi during the flight (it reads the flight controller on the Pi's serial port):
+
+```bash
+soilsight capture run my_field --sensor pi_gs_6mm --height 40
+```
+
+That fills `my_field/photos/` and `my_field/capture.csv`, which `soilsight scout check` and `soilsight scout run` then use.
+
+To rehearse without hardware, fly the same survey in ArduPilot's simulator. Build the simulator once from an ArduPilot checkout (`./waf configure --board sitl && ./waf copter`), then:
+
+```bash
+soilsight capture simulate sim_field --sensor pi_gs_6mm --sitl ardupilot/build/sitl/bin/arducopter --defaults ardupilot/Tools/autotest/default_params/copter.parm
+```
+
+To test the real camera on a desk:
+
+```bash
+soilsight capture bench ~/bench1 --sensor pi_gs_6mm --count 50
+```
+
 ## Using the Brain
 
 Values are ln(reading / threshold), so a spot is unsafe when its value is above 0.
@@ -174,6 +203,7 @@ zones = brain.zones(zone_ids)               # green / yellow / red per managemen
 | `soilsight/sampling/` | Initial spread and the next-spot rule |
 | `soilsight/scout.py` | The photos-to-layers pipeline |
 | `soilsight/field.py` | Where everything lives inside a field folder |
+| `soilsight/capture/` | The capture computer: camera drivers, triggers, clock matching, planning, simulator rehearsal, bench test |
 | `soilsight/ingest/` | Camera profiles, photo positions, flight checks |
 | `soilsight/photogrammetry/` | OpenDroneMap options, upload, outputs and their checks |
 | `soilsight/layers/` | Field grid; colour, terrain and distance layers |

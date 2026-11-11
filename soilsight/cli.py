@@ -117,7 +117,7 @@ def _capture_plan(a) -> int:
     print(f"flying height     {p.height_m:g} m")
     print(f"ground pixel      {p.gsd_m * 100:.1f} cm")
     print(f"one photo covers  {p.footprint_m[0]:.0f} m across the flight line, {p.footprint_m[1]:.0f} m along it")
-    print(f"photo every       {p.photo_spacing_m:.1f} m  ({p.interval_s:.2f} s at {p.speed_ms:g} m/s) for {a.forward:.0%} forward overlap")
+    print(f"photo every       {p.photo_spacing_m:.1f} m  ({p.interval_s:.2f} s at {p.speed_ms:.1f} m/s) for {a.forward:.0%} forward overlap")
     print(f"flight lines      {p.line_spacing_m:.1f} m apart for {a.side:.0%} side overlap")
     print(f"motion blur       {p.blur_px:.1f} px at 1/{1 / a.exposure:.0f} s")
     print(f"shutter smear     " + ("none (global shutter)" if profile.shutter == "global" else
@@ -126,7 +126,7 @@ def _capture_plan(a) -> int:
     print(f"covers            {p.area_ha_per_min():.2f} ha a minute on the lines")
     too_fast = p.speed_ms > p.max_speed_ms * 1.02
     if too_fast:
-        print(f"\n{p.speed_ms:g} m/s is too fast for this camera at this height: slow to {p.max_speed_ms:.1f} m/s or fly higher")
+        print(f"\n{p.speed_ms:.1f} m/s is too fast for this camera at this height: slow to {p.max_speed_ms:.1f} m/s or fly higher")
     if a.mission:
         if not a.boundary:
             print("--mission needs --boundary", file=sys.stderr)
@@ -170,6 +170,25 @@ def _capture_run(a) -> int:
     return 1 if session.unplaced else 0
 
 
+def _capture_bench(a) -> int:
+    from soilsight.capture.bench import bench_camera
+    from soilsight.capture.camera import FakeCamera, PiCamera
+
+    profile = _capture_profile(a)
+    camera = FakeCamera(profile, a.exposure) if a.camera == "fake" else PiCamera(profile, a.exposure, a.gain)
+    r = bench_camera(camera, a.out, a.count, a.interval, log=lambda msg: print(msg, file=sys.stderr, flush=True))
+    print(f"photos                 {r.photos}")
+    print(f"time between photos    {r.interval_median_s:.2f} s typical, {r.interval_worst_s:.2f} s at worst")
+    if a.interval:
+        print(f"late photos            {r.late} (more than 20% after their time)")
+    else:
+        print(f"safe photo interval    {r.sustainable_interval_s:.2f} s (the flight plan assumes 1.00 s)")
+    print(f"soft photos            {len(r.soft)}" + (f": {', '.join(r.soft[:8])}{'...' if len(r.soft) > 8 else ''}" if r.soft else ""))
+    print("\nA soft photo has under half the fine detail of the sharpest ones. With a fixed scene and a still camera")
+    print("there should be none; soft photos while the mount is tapped mean the lens or mount moves.")
+    return 1 if r.soft or r.late else 0
+
+
 def _capture_simulate(a) -> int:
     import numpy as np
 
@@ -195,7 +214,8 @@ def _capture_simulate(a) -> int:
     print(f"without a position     {r.unplaced}")
     print(f"placed by carrying on  {r.extrapolated}")
     print(f"flight time            {r.flight_s:.0f} s")
-    print(f"position error         {r.error_median_m * 100:.0f} cm typical, {r.error_p95_m * 100:.0f} cm at worst (against the simulator's true position)")
+    print(f"position error         {r.error_median_m * 100:.0f} cm typical, under {r.error_p95_m * 100:.0f} cm for 19 photos in 20 "
+          "(against the simulator's true position)")
     if r.log_triggers is not None:
         print(f"triggers in flight log {r.log_triggers}")
     print(f"\nnow judge the flight:  soilsight scout check {a.field}")
@@ -241,7 +261,7 @@ def main(argv=None) -> int:
         p.add_argument("--side", type=float, default=0.7, help="overlap between flight lines (default: %(default)s)")
         p.add_argument("--exposure", type=float, default=0.001, help="shutter time, seconds (default: %(default)s)")
         if speed:
-            p.add_argument("--speed", type=float, default=5.0, help="ground speed, m/s (default: %(default)s)")
+            p.add_argument("--speed", type=float, help="ground speed, m/s (default: the fastest the camera allows, up to 5)")
 
     pl = cap.add_parser("plan", help="flight settings for a camera, and optionally a survey mission file")
     flight_args(pl)
@@ -264,6 +284,18 @@ def main(argv=None) -> int:
     ru.add_argument("--gain", type=float, default=1.0, help="camera analogue gain (default: %(default)s)")
     flight_args(ru, speed=False)
     ru.set_defaults(func=_capture_run)
+
+    be = cap.add_parser("bench", help="bench-test a real camera: photo rate and sharpness",
+                        description="Take a run of photos with the camera on a desk or pole and measure how fast it can "
+                                    "shoot and whether the photos stay sharp. Run it once still and once while tapping the mount.")
+    be.add_argument("out", help="folder for the test photos")
+    be.add_argument("--sensor", help="camera profile: pi_gs_6mm, pi_cm3_binned or pi_cm3_full")
+    be.add_argument("--camera", choices=("pi", "fake"), default="pi")
+    be.add_argument("--count", type=int, default=30, help="photos to take (default: %(default)s)")
+    be.add_argument("--interval", type=float, default=0.0, help="seconds between photos; 0 means as fast as possible (default)")
+    be.add_argument("--exposure", type=float, default=0.001, help="shutter time, seconds (default: %(default)s)")
+    be.add_argument("--gain", type=float, default=1.0, help="camera analogue gain (default: %(default)s)")
+    be.set_defaults(func=_capture_bench)
 
     si = cap.add_parser("simulate", help="fly a survey in ArduPilot's simulator and capture it",
                         description="A rehearsal: the real ArduCopter code flies the survey in simulation while the capture "
