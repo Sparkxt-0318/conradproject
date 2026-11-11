@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+data/sample_field/layers/
+data/sample_field/report/
+data/sample_field/work/
+data/sample_field/visit/

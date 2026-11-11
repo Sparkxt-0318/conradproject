@@ -1,0 +1,102 @@
+{
+ "experiment": "validation",
+ "reps": null,
+ "rows": [
+  {
+   "scenario": "kit sd 0.12",
+   "strategy": "split samples",
+   "budget": 10,
+   "within_25pct": 0.960398,
+   "p_pass": 0.993957,
+   "ci95": 0.120877
+  },
+  {
+   "scenario": "kit sd 0.12",
+   "strategy": "split samples",
+   "budget": 20,
+   "within_25pct": 0.960398,
+   "p_pass": 0.999084,
+   "ci95": 0.085473
+  },
+  {
+   "scenario": "kit sd 0.12",
+   "strategy": "split samples",
+   "budget": 40,
+   "within_25pct": 0.960398,
+   "p_pass": 0.999979,
+   "ci95": 0.060438
+  },
+  {
+   "scenario": "kit sd 0.18",
+   "strategy": "split samples",
+   "budget": 10,
+   "within_25pct": 0.83756,
+   "p_pass": 0.78693,
+   "ci95": 0.228618
+  },
+  {
+   "scenario": "kit sd 0.18",
+   "strategy": "split samples",
+   "budget": 20,
+   "within_25pct": 0.83756,
+   "p_pass": 0.784944,
+   "ci95": 0.161657
+  },
+  {
+   "scenario": "kit sd 0.18",
+   "strategy": "split samples",
+   "budget": 40,
+   "within_25pct": 0.83756,
+   "p_pass": 0.808562,
+   "ci95": 0.114309
+  },
+  {
+   "scenario": "kit sd 0.22",
+   "strategy": "split samples",
+   "budget": 10,
+   "within_25pct": 0.74993,
+   "p_pass": 0.525383,
+   "ci95": 0.268409
+  },
+  {
+   "scenario": "kit sd 0.22",
+   "strategy": "split samples",
+   "budget": 20,
+   "within_25pct": 0.74993,
+   "p_pass": 0.414558,
+   "ci95": 0.189794
+  },
+  {
+   "scenario": "kit sd 0.22",
+   "strategy": "split samples",
+   "budget": 40,
+   "within_25pct": 0.74993,
+   "p_pass": 0.29948,
+   "ci95": 0.134205
+  },
+  {
+   "scenario": "kit sd 0.30",
+   "strategy": "split samples",
+   "budget": 10,
+   "within_25pct": 0.604513,
+   "p_pass": 0.174676,
+   "ci95": 0.303058
+  },
+  {
+   "scenario": "kit sd 0.30",
+   "strategy": "split samples",
+   "budget": 20,
+   "within_25pct": 0.604513,
+   "p_pass": 0.055307,
+   "ci95": 0.214294
+  },
+  {
+   "scenario": "kit sd 0.30",
+   "strategy": "split samples",
+   "budget": 40,
+   "within_25pct": 0.604513,
+   "p_pass": 0.007102,
+   "ci95": 0.151529
+  }
+ ]
+}
