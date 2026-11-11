@@ -72,8 +72,8 @@ def main(argv=None) -> int:
     sim = sub.add_parser("sim", help="synthetic fields and the benchmark").add_subparsers(dest="sim_command", required=True)
     b = sim.add_parser("benchmark", help="run a benchmark experiment and print its table",
                        description="Run a benchmark experiment on synthetic fields. "
-                                   "On four cores methods takes about 2 minutes, budget about 6, "
-                                   "brain about 15, validation a second.")
+                                   "On four cores methods, budget and brain each take a few minutes "
+                                   "(brain about 6); validation takes a second.")
     b.add_argument("experiment", choices=sorted(benchmark.RUNNERS))
     b.add_argument("--scenarios", type=_csv(str), help="comma-separated ids, e.g. S0,S7 (default: the reference set)")
     b.add_argument("--reps", type=int, help="fields per scenario (default: the reference number)")

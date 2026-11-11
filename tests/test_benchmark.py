@@ -125,6 +125,35 @@ def test_budget_reference_holds_the_plans_headline_numbers():
     assert min(zone) >= 0.855 and max(zone) <= 0.985           # "86-98% of zones correct at 15 tests"
 
 
+def test_brain_reference_holds_the_reported_gate_result():
+    ref = bm.load_expected("brain")
+    assert ref["reps"] == 40 and len(ref["rows"]) == len(SCENARIOS) * len(bm.BRAIN_STRATEGIES)
+    rows = ref["rows"]
+
+    def avg(name, key):
+        return sum(_row(rows, s, name)[key] for s in SCENARIOS) / len(SCENARIOS)
+
+    # The baselines are the same runs as in the methods experiment.
+    methods = bm.load_expected("methods")["rows"]
+    for name in (bm.PDF_LOOP, bm.EVEN_SPREAD):
+        for sid in SCENARIOS:
+            assert _row(rows, sid, name)["acc"] == pytest.approx(_row(methods, sid, name)["acc"], abs=1e-6)
+
+    # Numbers quoted in docs/software-plan.md.
+    assert avg(bm.PDF_LOOP, "acc") == pytest.approx(0.758, abs=6e-4)
+    assert avg(bm.EVEN_SPREAD, "acc") == pytest.approx(0.793, abs=6e-4)
+    assert avg(bm.BRAIN, "acc") == pytest.approx(0.787, abs=6e-4)          # level with even spread, not ahead
+    assert avg(bm.BRAIN, "missed") == pytest.approx(0.476, abs=6e-4)
+    assert avg(bm.EVEN_SPREAD, "missed") == pytest.approx(0.523, abs=6e-4)
+    assert avg(bm.BRAIN, "cov") == pytest.approx(0.861, abs=6e-4)
+    assert avg(bm.EVEN_SPREAD, "cov") == pytest.approx(0.821, abs=6e-4)
+    assert avg(bm.PDF_LOOP, "cov") == pytest.approx(0.739, abs=6e-4)
+    assert avg(bm.BRAIN, "zone_fgreen") == pytest.approx(0.027, abs=6e-4)
+    assert avg(bm.BRAIN, "zone_yellow") == pytest.approx(0.222, abs=6e-4)
+    assert avg("Brain, 3 cores", "acc") == pytest.approx(0.795, abs=6e-4)
+    assert avg("spatial + OK MAP, 3 cores", "acc") == pytest.approx(0.789, abs=6e-4)
+
+
 def test_validation_reproduces_its_reference():
     rows = bm.run_validation()
     assert bm.compare(rows, bm.load_expected("validation")["rows"]) == []

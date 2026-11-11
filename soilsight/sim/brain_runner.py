@@ -21,15 +21,17 @@ class BrainSetup:
 
 
 def run_brain(fld: Field, rng: np.random.Generator, kit_sd: float, budget: int = 15, cores: int = 1,
-              use_layers: bool = True, **brain_options) -> dict:
+              use_layers: bool = False, fixed_spots: bool = True, **brain_options) -> dict:
     """Let the Brain sample one field and score its final map and zone answers.
 
-    The Brain is told the kit error and the field's inlet and outlet, nothing else.
+    The Brain is told the kit error and, with fixed_spots, the field's inlet and outlet;
+    nothing else.
     """
     grid = fld.grid
     protocol = Protocol(budget=budget, cores=cores, kit_sd=kit_sd,
                         **{k: brain_options.pop(k) for k in list(brain_options) if k in Protocol.__dataclass_fields__})
-    brain = Brain(grid.xy, fld.pcs if use_layers else None, fixed_xy=grid.xy[[fld.i_in, fld.i_out]],
+    brain = Brain(grid.xy, fld.pcs if use_layers else None,
+                  fixed_xy=grid.xy[[fld.i_in, fld.i_out]] if fixed_spots else None,
                   protocol=protocol, seed=int(rng.integers(1 << 31)), **brain_options)
     idx = []
 
