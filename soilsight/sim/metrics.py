@@ -54,3 +54,26 @@ def score(mu: np.ndarray, sd: np.ndarray, fld: Field) -> dict:
         zacc=((zt > 0) == (zp > 0)).mean(),
         zrmse=np.sqrt(((zt - zp) ** 2).mean()),
     )
+
+
+def score_zones(answers, fld: Field) -> dict:
+    """Score the green / yellow / red zone answers against the true zone means.
+
+    zone_acc      share of zones whose P(unsafe) is on the right side of one half
+    zone_yellow   share of zones answered "not sure"
+    zone_fgreen   share of green zones that are really unsafe
+    zone_fred     share of red zones that are really safe
+    zone_brier    mean squared error of P(unsafe) (0 is perfect, 0.25 is a coin toss)
+    """
+    zone = fld.grid.zone
+    truth = np.array([fld.y[zone == a.zone].mean() > 0 for a in answers])
+    p = np.array([a.p_unsafe for a in answers])
+    green = np.array([a.label == "green" for a in answers])
+    red = np.array([a.label == "red" for a in answers])
+    return dict(
+        zone_acc=((p > 0.5) == truth).mean(),
+        zone_yellow=1 - green.mean() - red.mean(),
+        zone_fgreen=(green & truth).sum() / max(green.sum(), 1),
+        zone_fred=(red & ~truth).sum() / max(red.sum(), 1),
+        zone_brier=((p - truth) ** 2).mean(),
+    )

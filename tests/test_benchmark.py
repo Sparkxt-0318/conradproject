@@ -133,6 +133,76 @@ def test_validation_reproduces_its_reference():
     assert r["p_pass"] == pytest.approx(0.41, abs=0.01)
 
 
+def test_worker_processes_do_not_change_results(small_methods, small_grid):
+    parallel = bm.run_methods(scenarios=("S0",), reps=2, grid=small_grid, jobs=2)
+    assert bm.compare(parallel, small_methods, tol=1e-9) == []
+
+
+# ---- the Brain experiment and its gate
+
+@pytest.fixture(scope="module")
+def small_brain(small_grid):
+    return bm.run_brain_experiment(scenarios=("S0",), reps=3, grid=small_grid)
+
+
+def test_brain_experiment_reuses_the_reference_strategies(small_brain, small_grid):
+    assert [r["strategy"] for r in small_brain] == list(bm.BRAIN_STRATEGIES)
+    methods = bm.run_methods(scenarios=("S0",), reps=3, grid=small_grid)
+    for name in (bm.PDF_LOOP, bm.EVEN_SPREAD):       # same fields, same noise, same numbers
+        assert _row(small_brain, "S0", name)["acc"] == pytest.approx(_row(methods, "S0", name)["acc"], abs=1e-12)
+
+
+def test_brain_rows_carry_zone_answers_and_paired_values(small_brain):
+    brain = _row(small_brain, "S0", bm.BRAIN)
+    for k in ("zone_acc", "zone_yellow", "zone_fgreen", "zone_brier"):
+        assert 0 <= brain[k] <= 1
+    assert "zone_acc" not in _row(small_brain, "S0", bm.EVEN_SPREAD)
+    assert len(brain["_runs"]["acc"]) == 3
+    assert sum(brain["_runs"]["acc"]) / 3 == pytest.approx(brain["acc"])
+    assert "nan" in bm.format_table("brain", small_brain)       # baselines give no zone answers
+
+
+def test_paired_values_are_not_stored(tmp_path, small_brain):
+    import json
+    path = tmp_path / "brain.json"
+    bm.save_expected("brain", small_brain, 3, path)
+    stored = json.loads(path.read_text())["rows"]
+    assert all("_runs" not in r for r in stored)
+    assert bm.compare(small_brain, stored) == []
+
+
+def _gate_rows(brain_acc, pdf_acc, even_acc, cov):
+    def row(name, acc, scenario, cover):
+        return dict(scenario=scenario, strategy=name, budget=15, cov=cover,
+                    _runs=dict(acc=acc, bal=acc, missed=[1 - a for a in acc]))
+    rows = []
+    for i, sid in enumerate(("S0", "S1")):
+        rows += [row(bm.BRAIN, brain_acc, sid, cov[i]), row(bm.PDF_LOOP, pdf_acc, sid, 0.7),
+                 row(bm.EVEN_SPREAD, even_acc, sid, 0.8)]
+    return rows
+
+
+def test_paired_difference():
+    rows = _gate_rows([0.8, 0.9, 0.7], [0.7, 0.7, 0.7], [0.8, 0.8, 0.8], [0.9, 0.9])
+    d, se = bm.paired_difference(rows, bm.BRAIN, bm.PDF_LOOP, "acc")
+    assert d == pytest.approx(0.1)                    # mean of (0.1, 0.2, 0.0) twice
+    assert se == pytest.approx(0.0894427 / 6 ** 0.5, rel=1e-4)
+
+
+def test_gate_passes_only_on_a_clear_win_with_honest_ranges():
+    clear = bm.gate(_gate_rows([0.80, 0.82, 0.84, 0.86], [0.70, 0.71, 0.75, 0.74], [0.75, 0.78, 0.79, 0.80], [0.9, 0.88]))
+    assert [p for p, _ in clear] == [True, True, True]
+
+    tie = bm.gate(_gate_rows([0.80, 0.70, 0.84, 0.76], [0.60, 0.61, 0.65, 0.64], [0.75, 0.78, 0.79, 0.80], [0.9, 0.88]))
+    assert [p for p, _ in tie] == [True, False, True]             # ahead of one, level with the other
+
+    overconfident = bm.gate(_gate_rows([0.9] * 4, [0.5, 0.6, 0.5, 0.6], [0.6, 0.7, 0.6, 0.7], [0.72, 0.80]))
+    assert overconfident[2][0] is False and "S0 0.72" in overconfident[2][1]
+
+    mostly_fine = bm.gate(_gate_rows([0.9] * 4, [0.5, 0.6, 0.5, 0.6], [0.6, 0.7, 0.6, 0.7], [0.93, 0.83]))
+    assert mostly_fine[2][0] is True and "S1 0.83" in mostly_fine[2][1]   # average inside, one scenario named
+
+
 # ---- command line
 
 def test_cli_validation_check_passes(capsys):
@@ -153,3 +223,10 @@ def test_cli_rejects_bad_requests(capsys):
 def test_cli_will_not_overwrite_the_reference_from_a_partial_run(capsys):
     assert main(["sim", "benchmark", "methods", "--scenarios", "S0", "--reps", "1", "--write-expected"]) == 2
     assert "--write-expected needs the default" in capsys.readouterr().err
+
+
+def test_cli_brain_prints_the_gate(capsys):
+    assert main(["sim", "benchmark", "brain", "--scenarios", "S0", "--reps", "2", "--jobs", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "gate (single-core tests):" in out and "Brain, 3 cores" in out
+    assert out.count("PASS") + out.count("FAIL") == 3

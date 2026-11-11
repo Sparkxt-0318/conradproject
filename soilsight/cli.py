@@ -29,7 +29,7 @@ def _benchmark(a) -> int:
             print("--budgets only applies to the budget experiment", file=sys.stderr)
             return 2
         reps = a.reps or d["reps"]
-        kwargs = dict(scenarios=a.scenarios or d["scenarios"], reps=reps,
+        kwargs = dict(scenarios=a.scenarios or d["scenarios"], reps=reps, jobs=a.jobs or benchmark.default_jobs(),
                       log=lambda msg: print(msg, file=sys.stderr, flush=True))
         if a.experiment == "budget":
             kwargs["budgets"] = a.budgets or d["budgets"]
@@ -46,6 +46,10 @@ def _benchmark(a) -> int:
 
     rows = benchmark.RUNNERS[a.experiment](**kwargs)
     print(benchmark.format_table(a.experiment, rows))
+    if a.experiment == "brain":
+        print("\ngate (single-core tests):")
+        for passed, text in benchmark.gate(rows):
+            print(f"  {'PASS' if passed else 'FAIL'}  {text}")
 
     if a.write_expected:
         benchmark.save_expected(a.experiment, rows, reps)
@@ -68,11 +72,13 @@ def main(argv=None) -> int:
     sim = sub.add_parser("sim", help="synthetic fields and the benchmark").add_subparsers(dest="sim_command", required=True)
     b = sim.add_parser("benchmark", help="run a benchmark experiment and print its table",
                        description="Run a benchmark experiment on synthetic fields. "
-                                   "methods takes about 6 minutes, budget about 15, validation a second.")
+                                   "On four cores methods takes about 2 minutes, budget about 6, "
+                                   "brain about 15, validation a second.")
     b.add_argument("experiment", choices=sorted(benchmark.RUNNERS))
     b.add_argument("--scenarios", type=_csv(str), help="comma-separated ids, e.g. S0,S7 (default: the reference set)")
     b.add_argument("--reps", type=int, help="fields per scenario (default: the reference number)")
     b.add_argument("--budgets", type=_csv(int), help="budget experiment only: tests per field, e.g. 15,25")
+    b.add_argument("--jobs", type=int, help="worker processes (default: all cores but one); results do not depend on it")
     b.add_argument("--check", action="store_true", help="fail if results differ from the stored reference")
     b.add_argument("--write-expected", action="store_true", help="overwrite the stored reference with this run")
     b.set_defaults(func=_benchmark)
