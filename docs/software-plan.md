@@ -1,10 +1,10 @@
-# SoilSight software and AI plan (for review)
+# SoilSight software and AI plan
 
-Status: proposal awaiting review. Nothing in the build order below has been started.
+Status: approved. Phase 1 (the benchmark) is built; phases 2 to 7 are not started.
 
 ## Context
 
-SoilSight flies a drone over a drained rice field, picks a handful of spots, tests each with a strip kit for plant-available cadmium, pH and nitrate, and gives the farmer a red-yellow-green map. You lead the software and AI ("Brain" and "Scout" processing) and want it linked to a real camera. The repo is empty: the "tested starter code" named in the PDF (`capture.py`, `make_layers.py`, `first_spots.py`, `next_spot.py`) is not here, so this is a from-scratch design.
+SoilSight flies a drone over a drained rice field, picks a handful of spots, tests each with a strip kit for plant-available cadmium, pH and nitrate, and gives the farmer a red-yellow-green map. This plan covers the software and AI ("Brain" and "Scout" processing) and its link to a real camera. The "tested starter code" named in the PDF (`capture.py`, `make_layers.py`, `first_spots.py`, `next_spot.py`) was not available, so this is a from-scratch design.
 
 Before designing, I stress-tested the PDF's adaptive loop in simulation, and had the literature, competitors and camera hardware researched. The loop as written does not survive the test, and the camera plan has two hardware errors. The plan below keeps your product idea and changes how the software delivers it.
 
@@ -12,18 +12,18 @@ Before designing, I stress-tested the PDF's adaptive loop in simulation, and had
 
 Synthetic 3 ha fields (2 m cells), 12 scenarios × 40 repeats, 9 method variants, 15 tests per field, kit error 22%. Synthetic means my assumptions (within-field spread, 40 m patch size, 20% short-range noise), not proof; real fields must replace them.
 
-The code is in `experiments/stress_test.py` (numpy only) and reproduces every number in this table:
+The code is in `soilsight/sim/` (numpy only) and reproduces every number in this table. With `--check`, each command fails if its results differ from the stored reference:
 
 ```bash
-python experiments/stress_test.py methods
+soilsight sim benchmark methods --check
 ```
 
 ```bash
-python experiments/stress_test.py budget
+soilsight sim benchmark budget --check
 ```
 
 ```bash
-python experiments/stress_test.py validation
+soilsight sim benchmark validation --check
 ```
 
 | Finding | Number |
@@ -79,7 +79,7 @@ One Python package, sensor-agnostic, developed against simulation before hardwar
 
 ```
 soilsight/
-  sim/            synthetic fields + benchmark (the stress test, kept as a regression test)
+  sim/            synthetic fields + benchmark (the stress test, kept as a regression test)  [built]
   model/          GP on ln(Cd) with per-test noise and constrained settings; optional trend;
                   kit-to-lab correction; grain-risk formula; three-class and zone summaries
   sampling/       initial spread, straddle rule, budget and "value of one more test"
@@ -98,7 +98,7 @@ Each field is one folder: GeoTIFF layers, a GeoPackage of spots and results, and
 
 ## Build order (each phase ends on a measured gate)
 
-1. **Benchmark first.** Move `experiments/stress_test.py` into `sim/` with tests. Gate: reproduces the table above.
+1. **Benchmark first (done).** The stress test lives in `sim/` with tests. Gate met: the ported code matches the original script run for run, and the stored reference results hold the table above.
 2. **Brain.** `model/` and `sampling/`. Gate: beats both the PDF loop and the even-spread baseline on the benchmark; 90% ranges cover 85–95%.
 3. **Scout processing.** `ingest/`, `photogrammetry/`, `layers/` on a public drone dataset. Gate: one command turns a photo folder into layers and a quality report.
 4. **Capture.** `capture/` against ArduPilot's simulator with a fake camera, then the real camera on a pole or cart, then the drone. Gate: every photo geotagged, overlap ≥80%, smear under 1 pixel.
@@ -109,18 +109,18 @@ Each field is one folder: GeoTIFF layers, a GeoPackage of spots and results, and
 ## Verification
 
 - `pytest`: GP checked against closed-form cases; design and geotag unit tests.
-- `soilsight sim benchmark`: regenerates the stress-test table; fails if the chosen method drops below baseline.
+- `soilsight sim benchmark <experiment> --check`: regenerates the stress-test tables and fails if they change. From phase 2 it also fails if the chosen method drops below baseline.
 - `soilsight pipeline run data/sample_field`: photos → layers → spots → report, end to end.
 - Simulator flight: trigger messages in, geotagged files out, timing error under 50 ms.
 - Camera bench test: measured readout, focus stability under vibration, capture rate on the chosen Pi.
 
-## Decisions for you
+## Decisions (agreed)
 
-1. **Output framing:** accept "zone answers plus an honest three-class map" in place of "90% of the field at 90% confidence"? This changes pitch wording.
-2. **Sensor:** Global Shutter Camera as primary, and is an RTK receiver (about ¥600–1,000, unverified) affordable?
+1. **Output framing:** zone answers plus a three-class map where yellow means "not sure, test more". The "90% of the field at 90% confidence" claim is dropped.
+2. **Sensor:** Raspberry Pi Global Shutter Camera as primary, plus one RTK receiver.
 3. **Tests per field:** 15 mixed-core tests for zone answers; one truth field at about 50.
-4. **App:** phone web app first, WeChat mini-program later?
-5. **Starter code:** does the PDF's code exist somewhere to port, or start fresh?
+4. **App:** phone web app first, WeChat mini-program later.
+5. **Starter code:** start fresh.
 
 ## Not verified
 
