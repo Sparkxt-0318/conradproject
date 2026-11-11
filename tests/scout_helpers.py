@@ -135,12 +135,13 @@ def write_photo(path, lat=None, lon=None, alt=None, when=None, size=(64, 48), ex
 
 def lawnmower(lines=5, per_line=20, spacing=5.0, line_spacing=10.0, speed=5.0, lat0=28.2, lon0=113.0):
     """Positions and times of a back-and-forth grid flight: list of (name, lat, lon, time)."""
+    from soilsight.geo import metres_per_degree
+    m_lon, m_lat = metres_per_degree(lat0)
     out, t = [], datetime(2026, 11, 11, 3, 0, 0)
     for line in range(lines):
         ys = np.arange(per_line) * spacing
         for y in (ys if line % 2 == 0 else ys[::-1]):
-            out.append((f"img_{len(out):04d}.jpg", lat0 + y / 111320.0,
-                        lon0 + line * line_spacing / (111320.0 * np.cos(np.radians(lat0))), t))
+            out.append((f"img_{len(out):04d}.jpg", lat0 + y / m_lat, lon0 + line * line_spacing / m_lon, t))
             t += timedelta(seconds=spacing / speed)
         t += timedelta(seconds=6)
     return out

@@ -8,18 +8,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from soilsight.geo import metres_per_degree
 from soilsight.ingest.sensors import SensorProfile
 from soilsight.report.checks import FAIL, INFO, OK, WARN, Check, graded
-
-EARTH_M_PER_DEG = 111_320.0
-
 
 def local_xy(shots) -> np.ndarray:
     """Photo positions as metres east and north of their centre (fine for a single field)."""
     lat = np.array([s.lat for s in shots])
     lon = np.array([s.lon for s in shots])
-    x = (lon - lon.mean()) * EARTH_M_PER_DEG * np.cos(np.radians(lat.mean()))
-    y = (lat - lat.mean()) * EARTH_M_PER_DEG
+    m_lon, m_lat = metres_per_degree(lat.mean())
+    x = (lon - lon.mean()) * m_lon
+    y = (lat - lat.mean()) * m_lat
     return np.c_[x, y]
 
 
@@ -68,13 +67,23 @@ def flight_geometry(shots, height_m: float | None = None) -> FlightGeometry:
     gaps = gaps[gaps > 0.25 * spacing] if len(gaps) and spacing == spacing else gaps
     line_spacing = float(np.median(gaps)) if len(gaps) else float("nan")
 
+    # Speed: within each flight line, distance over time between every pair of photos, then the
+    # middle value of them all. Pairs far apart smooth out whole-second time stamps; taking the
+    # middle value shrugs off a hover before the first line, a corner, or a skipped photo.
     speed = float("nan")
     if timed:
-        dt = np.array([(b.time - a.time).total_seconds() for a, b in zip(shots, shots[1:])])
-        # Only steps of ordinary length: a skipped photo or a turn would drag the speed down.
-        use = on_line & (dt > 0) & (length > 0.5 * spacing) & (length < 1.5 * spacing)
-        if use.any():
-            speed = float(length[use].sum() / dt[use].sum())
+        t = np.array([(s.time - shots[0].time).total_seconds() for s in shots])
+        s_along = xy @ np.array([np.cos(axis), np.sin(axis)])
+        rates = []
+        for k in np.unique(line_of):
+            i = np.flatnonzero(line_of == k)
+            if len(i) >= 3:
+                a, b = np.triu_indices(len(i), 1)
+                dt = t[i[b]] - t[i[a]]
+                ok = dt > 0
+                rates.append(np.abs(s_along[i[b]] - s_along[i[a]])[ok] / dt[ok])
+        if rates and sum(len(r) for r in rates):
+            speed = float(np.median(np.concatenate(rates)))
 
     agl = [s.agl_m for s in shots if s.agl_m is not None]
     if agl:
