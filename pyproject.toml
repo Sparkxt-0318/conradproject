@@ -21,6 +21,7 @@ include = ["soilsight*"]
 [tool.setuptools.package-data]
 "soilsight.sim" = ["expected/*.json"]
 "soilsight.ingest" = ["sensors.toml"]
+"soilsight.app" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

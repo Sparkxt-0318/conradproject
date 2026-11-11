@@ -6,16 +6,17 @@ The design and the reasoning behind it are in [docs/software-plan.md](docs/softw
 
 ## Status
 
-Phases 1 to 4 of the plan are built:
+Phases 1 to 5 of the plan are built:
 
 - **Benchmark:** synthetic fields that every sampling strategy is judged on.
 - **Brain:** the map model and the loop that picks where to test next.
 - **Scout processing:** one command turns a folder of drone photos into map layers and a quality report.
 - **Capture:** the software for the Raspberry Pi on the drone, which takes the photos and records where each was taken.
+- **Field app and report:** a phone web app that runs a whole visit with no signal, and the Field Health Report made from its log.
 
 On the benchmark the Brain beats the original plan's loop and gives honest uncertainty, but it is level with a plain even spread of tests on accuracy; its gain is less unsafe ground called safe. Details are in the plan under "Phase 2 result".
 
-Scout processing has run on public sample photo sets with real stitching. Capture has flown surveys in ArduPilot's simulator with a stand-in camera. Nothing here has touched the project's own camera, a real flight controller or a real rice field yet; [docs/bench-test.md](docs/bench-test.md) is the procedure for that.
+Scout processing has run on public sample photo sets with real stitching. Capture has flown surveys in ArduPilot's simulator with a stand-in camera. The field app has run whole visits in an emulated phone with the network cut, not yet on a real phone. Nothing here has touched the project's own camera, a real flight controller or a real rice field yet; [docs/bench-test.md](docs/bench-test.md) is the procedure for that.
 
 ## Install
 
@@ -177,6 +178,32 @@ To test the real camera on a desk:
 soilsight capture bench ~/bench1 --sensor pi_gs_6mm --count 50
 ```
 
+## The field visit: phone app and report
+
+Make the file the phone needs from a scouted field (set `threshold` in `field.toml`, or type it in at the start of the visit):
+
+```bash
+soilsight app package my_field
+```
+
+Try the app on the laptop with that field loaded:
+
+```bash
+soilsight app serve --package my_field/visit/field.soilsight.json
+```
+
+In the app: walk to each numbered spot (it shows distance and direction), tap "Sample taken here", mix the cores, and enter each reading when it is tested. After the first spread of spots has results, the app proposes the next spot itself. When the tests are used up, finish the visit and export the log.
+
+Back on the laptop, check the log and make the Field Health Report:
+
+```bash
+soilsight app report my_field soilsight-log-my_field-2026-11-11.json
+```
+
+That writes `my_field/report/field_health.html` (open it in a browser; it prints to A4) and `my_field/visit/results.geojson` for QGIS. A log that was edited after the fact is refused.
+
+Getting the app onto a phone: the app is the folder `soilsight/app/static/`, plain files with no server behind them. Put that folder on any https web host and open it once on the phone with a connection; after that it starts with no signal. Then load the field package file through the app's "Load a field" button. A phone only gives GPS, and only keeps the app for offline use, on an https address, so `soilsight app serve` over the local network is for looking, not for field use.
+
 ## Using the Brain
 
 Values are ln(reading / threshold), so a spot is unsafe when its value is above 0.
@@ -203,17 +230,19 @@ zones = brain.zones(zone_ids)               # green / yellow / red per managemen
 | `soilsight/sampling/` | Initial spread and the next-spot rule |
 | `soilsight/scout.py` | The photos-to-layers pipeline |
 | `soilsight/field.py` | Where everything lives inside a field folder |
+| `soilsight/app/` | Field package, measurement log, visit replay, and the phone app in `static/` (with the Brain in JavaScript) |
+| `soilsight/report/health.py` | The Field Health Report |
 | `soilsight/capture/` | The capture computer: camera drivers, triggers, clock matching, planning, simulator rehearsal, bench test |
 | `soilsight/ingest/` | Camera profiles, photo positions, flight checks |
 | `soilsight/photogrammetry/` | OpenDroneMap options, upload, outputs and their checks |
 | `soilsight/layers/` | Field grid; colour, terrain and distance layers |
-| `soilsight/report/` | The quality report |
+| `soilsight/report/` | The map quality report |
 | `soilsight/sim/fields.py` | Synthetic fields, the scenarios, and a simulated kit reading |
 | `soilsight/sim/baselines.py` | Reference strategies, including the original plan's loop |
 | `soilsight/sim/metrics.py` | How a predicted map is scored against the truth |
 | `soilsight/sim/benchmark.py` | The four experiments, the gate, and the check against reference results |
 | `soilsight/sim/expected/` | Reference results (the numbers quoted in the plan) |
 | `data/sample_field/` | Real stitched outputs at reduced resolution, for trying the pipeline and as a regression test |
-| `tests/` | Unit tests and a fast regression test; scout tests use small synthetic photos and rasters |
+| `tests/` | Unit tests and a fast regression test; scout tests use small synthetic photos and rasters; `tests/js/` runs the phone's code in Node and in an emulated phone |
 
 The benchmark's fields are made up. It compares strategies under controlled conditions; it does not show how well any of them works on real soil.
